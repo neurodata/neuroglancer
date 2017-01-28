@@ -22,6 +22,7 @@ import {NavigationState} from 'neuroglancer/navigation_state';
 import {DataType, SLICEVIEW_RPC_ID, SliceViewBase, VolumeChunkSource as VolumeChunkSourceInterface, VolumeChunkSpecification, VolumeSourceOptions, VolumeType} from 'neuroglancer/sliceview/base';
 import {ChunkLayout} from 'neuroglancer/sliceview/chunk_layout';
 import {RenderLayer} from 'neuroglancer/sliceview/renderlayer';
+import {SegmentationRenderLayer} from 'neuroglancer/sliceview/segmentation_renderlayer';
 import {RefCounted} from 'neuroglancer/util/disposable';
 import {Disposable} from 'neuroglancer/util/disposable';
 import {mat4, rectifyTransformMatrixIfAxisAligned, vec3, vec3Key, vec4} from 'neuroglancer/util/geom';
@@ -217,11 +218,23 @@ export class SliceView extends SliceViewBase {
           /*func=*/gl.GREATER,
           /*ref=*/1,
           /*mask=*/1);
-      if (renderLayerNum === 1) {
+      
+      /*
+      if (renderLayer.constructor.toString() === SegmentationRenderLayer.constructor.toString()) {
+        gl.disable(gl.BLEND);
+      } else {
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      }
+      */
+
+      // if (renderLayerNum === 1) {
         // Turn on blending after the first layer.
         gl.enable(gl.BLEND);
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      }
+        // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      // }
+
       renderLayer.draw(this);
       ++renderLayerNum;
     }
