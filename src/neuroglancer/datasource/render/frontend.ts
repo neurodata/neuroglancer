@@ -27,7 +27,7 @@ import {defineParameterizedVolumeChunkSource, MultiscaleVolumeChunkSource as Gen
 import {applyCompletionOffset, getPrefixMatchesWithDescriptions} from 'neuroglancer/util/completion';
 import {vec3} from 'neuroglancer/util/geom';
 import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
-import {parseArray, parseQueryStringParameters, verifyFloat, verifyInt, verifyObject, verifyObjectProperty, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
+import {parseArray, parseQueryStringParameters, verifyFloat, verifyInt, verifyObject, verifyObjectProperty, verifyOptionalString, verifyOptionalInt, verifyString} from 'neuroglancer/util/json';
 
 const VALID_ENCODINGS = new Set<string>(['jpg']);
 
