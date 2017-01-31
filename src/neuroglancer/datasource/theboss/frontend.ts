@@ -461,34 +461,36 @@ export function getCoordinateFrame(
 export function tokenCollectionAndExperimentCompleter(
     chunkManager: ChunkManager, hostnames: string[],
     path: string): Promise<CompletionResult> {
+    
+  const token = (<any>window).keycloak.token; 
   let channelMatch = path.match(/^(?:([^\/]+)(?:\/?([^\/]*)(?:\/?([^\/]*)(?:\/?([^\/]*)?))?)?)?$/);
   console.log(channelMatch);
   if (channelMatch === null) {
     // URL has incorrect format, don't return any results.
     return Promise.reject<CompletionResult>(null);
   }
-  if (channelMatch[2] === undefined) {
+  if (channelMatch[1] === undefined) {
     // No token. Reject.
     return Promise.reject<CompletionResult>(null);
   }
-  if (channelMatch[3] === undefined) {
-    let collectionPrefix = channelMatch[2] || '';
+  if (channelMatch[2] === undefined) {
+    let collectionPrefix = channelMatch[1] || '';
     // Try to complete the collection.
-    return getCollections(chunkManager, hostnames, channelMatch[1])
+    return getCollections(chunkManager, hostnames, token)
       .then(collections => {
         return {
-          offset: channelMatch![1].length + 1,
+          offset: 0,
           completions: getPrefixMatchesWithDescriptions(
               collectionPrefix, collections, x => x + '/', () => undefined)
         };
     });
   }
-  if (channelMatch[4] === undefined) {
-    let experimentPrefix = channelMatch[3] || '';
-    return getExperiments(chunkManager, hostnames, channelMatch[1], channelMatch[2])
+  if (channelMatch[3] === undefined) {
+    let experimentPrefix = channelMatch[2] || '';
+    return getExperiments(chunkManager, hostnames, token, channelMatch[1])
         .then(experiments => {
           return {
-            offset: channelMatch![1].length + channelMatch![2].length + 2,
+            offset: channelMatch![1].length + 1,
             completions: getPrefixMatchesWithDescriptions(
                 experimentPrefix, experiments, y => y + '/', () => undefined)
           };
@@ -496,12 +498,12 @@ export function tokenCollectionAndExperimentCompleter(
     
   }
   // try to complete the channel (AB TODO)
-  return getExperimentInfo(chunkManager, hostnames, channelMatch[1], channelMatch[3], channelMatch[2]).then(experimentInfo => {
+  return getExperimentInfo(chunkManager, hostnames, token, channelMatch[2], channelMatch[1]).then(experimentInfo => {
     let completions = getPrefixMatchesWithDescriptions(
-            channelMatch![2], experimentInfo.channels, x => x[0], x => {
+            channelMatch![1], experimentInfo.channels, x => x[0], x => {
               return `${x[1].channelType} (${DataType[x[1].dataType]})`;
             });
-      return {offset: channelMatch![1].length + channelMatch![2].length + 1, completions};
+      return {offset: channelMatch![1].length + channelMatch![2].length + 2, completions};
   });
 }
 
