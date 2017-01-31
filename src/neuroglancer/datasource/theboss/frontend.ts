@@ -24,7 +24,7 @@ import {CompletionResult, registerDataSourceFactory} from 'neuroglancer/datasour
 import {makeRequest, Token} from 'neuroglancer/datasource/theboss/api';
 import {BossSourceParameters, TileChunkSourceParameters, VolumeChunkSourceParameters} from 'neuroglancer/datasource/theboss/base';
 import {DataType, VolumeChunkSpecification, VolumeSourceOptions, VolumeType} from 'neuroglancer/sliceview/base';
-import {defineParameterizedVolumeChunkSource, MultiscaleVolumeChunkSource as GenericMultiscaleVolumeChunkSource, VolumeChunkSource} from 'neuroglancer/sliceview/frontend';
+import {defineParameterizedVolumeChunkSource, MultiscaleVolumeChunkSource as GenericMultiscaleVolumeChunkSource} from 'neuroglancer/sliceview/frontend';
 import {applyCompletionOffset, getPrefixMatchesWithDescriptions} from 'neuroglancer/util/completion';
 import {mat4, vec3} from 'neuroglancer/util/geom';
 import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
@@ -32,13 +32,12 @@ import {parseArray, parseQueryStringParameters, verify3dDimensions, verify3dScal
 
 let serverVolumeTypes = new Map<string, VolumeType>();
 serverVolumeTypes.set('image', VolumeType.IMAGE);
-serverVolumeTypes.set('annotation', VolumeType.IMAGE); // TODO: tmp treat annos as image tiles
-//serverVolumeTypes.set('annotation', VolumeType.SEGMENTATION);
+// serverVolumeTypes.set('annotation', VolumeType.IMAGE); // TODO: tmp treat annos as image tiles
+serverVolumeTypes.set('annotation', VolumeType.SEGMENTATION);
 
 const VALID_ENCODINGS = new Set<string>(['npz', 'jpeg']);  //, 'raw', 'jpeg']);
 
-// const VolumeChunkSource = defineParameterizedVolumeChunkSource(VolumeChunkSourceParameters);
-
+const VolumeChunkSource = defineParameterizedVolumeChunkSource(VolumeChunkSourceParameters);
 const TileChunkSource = defineParameterizedVolumeChunkSource(TileChunkSourceParameters);
 
 interface ChannelInfo {
@@ -148,10 +147,13 @@ function parseChannelInfo(obj: any): ChannelInfo {
   let channelType = verifyObjectProperty(obj, 'type', verifyString);
 
   let dataType = verifyObjectProperty(obj, 'datatype', x => verifyEnumString(x, DataType)); 
+  // AB TODO: try parsing npz 
+  /*
   if (channelType === 'annotation') 
   {
     dataType = DataType.UINT8; // force 3-channel UINT8 for annotation tiles 
   }
+  */
   return {
     channelType,
     description: verifyObjectProperty(obj, 'description', verifyString),
@@ -203,12 +205,15 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     return this.channelInfo.dataType;
   }
   get numChannels() {
+    return 1;
+    /*
     if (this.channelInfo.channelType === 'annotation') {
       return 3; 
     } 
     else {
       return 1;
     }
+    */
   }
   get volumeType() {
     return this.channelInfo.volumeType;
@@ -257,7 +262,6 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     }
     this.channel = channel;
     this.channelInfo = channelInfo;
-    console.log(this.channelInfo);
     this.scales = experimentInfo.scales;
     this.token = token;
 
@@ -266,7 +270,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     let encoding = verifyOptionalString(parameters['encoding']);
     if (encoding === undefined) {
       // encoding = this.volumeType === VolumeType.IMAGE ? 'jpeg' : 'npz';
-      encoding = 'jpeg';
+      encoding = 'npz';
     } else {
       if (!VALID_ENCODINGS.has(encoding)) {
         throw new Error(`Invalid encoding: ${JSON.stringify(encoding)}.`);
@@ -276,6 +280,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   }
 
   getSources(volumeSourceOptions: VolumeSourceOptions) {
+    /*
     let sources: VolumeChunkSource[][] = [];
     for (let scaleInfo of this.scales) {
       let alternatives = TILE_DIMS.map((dims, index) => {
@@ -314,7 +319,8 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
       sources.push(alternatives);
     }
     return sources;
-    /* // 3D cutout code
+    */
+    // 3D cutout code
     return this.scales.map(scaleInfo => {
       let {voxelOffset, voxelSize} = scaleInfo;
       let baseVoxelOffset = vec3.create();
@@ -326,6 +332,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
             numChannels: this.numChannels,
             volumeType: this.volumeType,
             dataType: this.dataType, voxelSize,
+            chunkDataSizes: [vec3.fromValues(256, 256, 16)],
             transform: mat4.fromTranslation(
                 mat4.create(), vec3.multiply(vec3.create(), voxelOffset, voxelSize)),
             baseVoxelOffset,
@@ -341,7 +348,6 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
             token: this.token,
           }));
     });
-    */
   }
 
   /**

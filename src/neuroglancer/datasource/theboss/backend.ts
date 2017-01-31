@@ -20,13 +20,13 @@ import {BossSourceParameters, TileChunkSourceParameters, VolumeChunkSourceParame
 import {ParameterizedVolumeChunkSource, VolumeChunk} from 'neuroglancer/sliceview/backend';
 import {ChunkDecoder} from 'neuroglancer/sliceview/backend_chunk_decoders';
 import {decodeJpegChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/jpeg';
-import {decodeNdstoreNpzChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/ndstoreNpz';
+import {decodeBossNpzChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/bossNpz';
 import {decodeRawChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/raw';
 import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
 import {CancellationToken} from 'neuroglancer/util/cancellation';
 
 let chunkDecoders = new Map<string, ChunkDecoder>();
-chunkDecoders.set('npz', decodeNdstoreNpzChunk);
+chunkDecoders.set('npz', decodeBossNpzChunk);
 chunkDecoders.set('jpeg', decodeJpegChunk);
 // chunkDecoders.set('raw', decodeRawChunk);
 
@@ -50,7 +50,7 @@ class VolumeChunkSource extends ParameterizedVolumeChunkSource<VolumeChunkSource
     path += '/';
 
     // path += `/neariso/`;
-    return makeRequest(parameters.baseUrls, 'GET', path, parameters.token, 'arraybuffer', cancellationToken)
+    return makeVolumeRequest(parameters.baseUrls, 'GET', path, parameters.token, 'arraybuffer', cancellationToken)
       .then(response => this.chunkDecoder(chunk, response));
   }
 };

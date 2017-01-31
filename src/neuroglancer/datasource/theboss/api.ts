@@ -84,6 +84,16 @@ export function makeRequest(
 
 export function makeVolumeRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
+    responseType: string, cancellationToken?: CancellationToken): Promise<ArrayBuffer>;
+export function makeVolumeRequest(
+    baseUrls: string|string[], method: string, path: string, token: string,
+    responseType: string, cancellationToken?: CancellationToken): Promise<any>;
+export function makeVolumeRequest(
+    baseUrls: string|string[], method: string, path: string, token: string,
+    responseType: string, cancellationToken?: CancellationToken): any;
+
+export function makeVolumeRequest(
+    baseUrls: string|string[], method: string, path: string, token: string,
     responseType: string, cancellationToken: CancellationToken = uncancelableToken): any {
   /**
    * undefined means request not yet attempted.  null means request
