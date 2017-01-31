@@ -358,7 +358,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   }
 };
 
-const pathPattern = /^([^\/?]+)\/([^\/?]+)\/([^\/?]+)(?:\/([^\/?]+))?(?:\?(.*))?$/;
+const pathPattern = /^([^\/?]+)\/([^\/?]+)(?:\/([^\/?]+))?(?:\?(.*))?$/;
 
 export function getExperimentInfo(
     chunkManager: ChunkManager, hostnames: string[], token: Token, experiment: string,
@@ -396,11 +396,12 @@ export function getShardedVolume(chunkManager: ChunkManager, hostnames: string[]
   if (match === null) {
     throw new Error(`Invalid volume path ${JSON.stringify(path)}`);
   }
-  const token = match[1];
-  const collection = match[2];
-  const experiment = match[3];
-  const channel = match[4];
-  const parameters = parseQueryStringParameters(match[5] || '');
+  // const token = match[1];
+  const token = (<any>window).keycloak.token; 
+  const collection = match[1];
+  const experiment = match[2];
+  const channel = match[3];
+  const parameters = parseQueryStringParameters(match[4] || '');
   // Warning: If additional arguments are added, the cache key should be updated as well.
   return chunkManager.memoize.getUncounted(
       {'hostnames': hostnames, 'path': path},

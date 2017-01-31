@@ -7,5 +7,20 @@
   </head>
   <body>
     <div id="container"></div>
+    <script src="https://auth.theboss.io/auth/js/keycloak.js"></script>
+    <script>
+        keycloak = Keycloak({
+            url: "https://auth.theboss.io/auth",
+            realm: "BOSS",
+            clientId: "endpoint"
+        });
+        keycloak.init({
+            onLoad: 'login-required',
+        }).success(function(authenticated) {
+            console.info(authenticated ? 'Authenticated.' : 'Failed to authenticate.');
+        }).error(function() {
+            console.error('Failed to initialize Keycloak.');
+        });
+    </script>
   </body>
 </html>

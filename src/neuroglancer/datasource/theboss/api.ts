@@ -56,7 +56,9 @@ export function makeRequest(
       }
       xhr = openShardedHttpRequest(baseUrls, path, method);
       xhr.responseType = responseType;
-      xhr.setRequestHeader('Authorization', `Token ${token}`);
+      // xhr.setRequestHeader('Authorization', `Token ${token}`);
+      // xhr.setRequestHeader('Authorization', `Bearer ${(<any>window).keycloak.token}`);
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.onloadend = function(this: XMLHttpRequest) {
         if (xhr === null) {
           --numPendingRequests;
@@ -117,7 +119,9 @@ export function makeVolumeRequest(
       }
       xhr = openShardedHttpRequest(baseUrls, path, method);
       xhr.responseType = responseType;
-      xhr.setRequestHeader('Authorization', `Token ${token}`);
+      // xhr.setRequestHeader('Authorization', `Token ${token}`);
+      // xhr.setRequestHeader('Authorization', `Bearer ${(<any>window).keycloak.token}`);
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.setRequestHeader('Accept', 'application/npygz');
       xhr.onloadend = function(this: XMLHttpRequest) {
         if (xhr === null) {
@@ -179,7 +183,9 @@ export function makeTileRequest(
       }
       xhr = openShardedHttpRequest(baseUrls, path, method);
       xhr.responseType = responseType;
-      xhr.setRequestHeader('Authorization', `Token ${token}`);
+      // xhr.setReuestHeader('Authorization', `Token ${token}`);
+      // xhr.setRequestHeader('Authorization', `Bearer ${(<any>window).keycloak.token}`);
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.setRequestHeader('Accept', 'image/jpeg');
       xhr.onloadend = function(this: XMLHttpRequest) {
         if (xhr === null) {
