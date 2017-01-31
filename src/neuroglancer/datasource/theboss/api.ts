@@ -15,7 +15,7 @@
  */
 
 import {HttpError, openShardedHttpRequest} from 'neuroglancer/util/http_request';
-import {CancellablePromise, makeCancellablePromise} from 'neuroglancer/util/promise';
+import {CancellationToken, uncancelableToken, CANCELED} from 'neuroglancer/util/cancellation';
 
 export var numPendingRequests = 0;
 
@@ -23,23 +23,32 @@ export type Token = any;
 
 export function makeRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: 'arraybuffer'): CancellablePromise<ArrayBuffer>;
+    responseType: 'arraybuffer', cancellationToken?: CancellationToken): Promise<ArrayBuffer>;
 export function makeRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: 'json'): CancellablePromise<any>;
+    responseType: 'json', cancellationToken?: CancellationToken): Promise<any>;
 export function makeRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: string): any;
+    responseType: string, cancellationToken?: CancellationToken): any;
 
 export function makeRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: string): any {
+    responseType: string, cancellationToken: CancellationToken = uncancelableToken): any {
   /**
    * undefined means request not yet attempted.  null means request
    * cancelled.
    */
   let xhr: XMLHttpRequest|undefined|null = undefined;
-  return makeCancellablePromise<any>((resolve, reject, onCancel) => {
+  return new Promise<any>((resolve, reject) => { 
+    const abort = () => {
+      let origXhr = xhr;
+      xhr = null;
+      if (origXhr != null) {
+        origXhr.abort();
+      }
+      reject(CANCELED);
+    } 
+    cancellationToken.add(abort);
     function start(token: Token) {
       if (xhr === null) {
         --numPendingRequests;
@@ -69,26 +78,28 @@ export function makeRequest(
       };
       xhr.send();
     }
-    onCancel(() => {
-      let origXhr = xhr;
-      xhr = null;
-      if (origXhr != null) {
-        origXhr.abort();
-      }
-    });
     start(token);
   });
 }
 
 export function makeVolumeRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: string): any {
+    responseType: string, cancellationToken: CancellationToken = uncancelableToken): any {
   /**
    * undefined means request not yet attempted.  null means request
    * cancelled.
    */
   let xhr: XMLHttpRequest|undefined|null = undefined;
-  return makeCancellablePromise<any>((resolve, reject, onCancel) => {
+  return new Promise<any>((resolve, reject) => {
+    const abort = () => {
+      let origXhr = xhr;
+      xhr = null;
+      if (origXhr != null) {
+        origXhr.abort();
+      }
+      reject(CANCELED);
+    } 
+    cancellationToken.add(abort);
     function start(token: Token) {
       if (xhr === null) {
         --numPendingRequests;
@@ -97,7 +108,7 @@ export function makeVolumeRequest(
       xhr = openShardedHttpRequest(baseUrls, path, method);
       xhr.responseType = responseType;
       xhr.setRequestHeader('Authorization', `Token ${token}`);
-      xhr.setRequestHeader('Accept', 'application/blosc-python');
+      xhr.setRequestHeader('Accept', 'application/npygz');
       xhr.onloadend = function(this: XMLHttpRequest) {
         if (xhr === null) {
           --numPendingRequests;
@@ -119,26 +130,38 @@ export function makeVolumeRequest(
       };
       xhr.send();
     }
-    onCancel(() => {
-      let origXhr = xhr;
-      xhr = null;
-      if (origXhr != null) {
-        origXhr.abort();
-      }
-    });
     start(token);
   });
 }
 
 export function makeTileRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: string): any {
+    responseType: string, cancellationToken?: CancellationToken): Promise<ArrayBuffer>;
+export function makeTileRequest(
+    baseUrls: string|string[], method: string, path: string, token: string,
+    responseType: string, cancellationToken?: CancellationToken): Promise<any>;
+export function makeTileRequest(
+    baseUrls: string|string[], method: string, path: string, token: string,
+    responseType: string, cancellationToken?: CancellationToken): any;
+
+export function makeTileRequest(
+    baseUrls: string|string[], method: string, path: string, token: string,
+    responseType: string, cancellationToken: CancellationToken = uncancelableToken): any {
   /**
    * undefined means request not yet attempted.  null means request
    * cancelled.
    */
   let xhr: XMLHttpRequest|undefined|null = undefined;
-  return makeCancellablePromise<any>((resolve, reject, onCancel) => {
+  return new Promise<any>((resolve, reject) => {
+    const abort = () => {
+      let origXhr = xhr;
+      xhr = null;
+      if (origXhr != null) {
+        origXhr.abort();
+      }
+      reject(CANCELED);
+    } 
+    cancellationToken.add(abort);
     function start(token: Token) {
       if (xhr === null) {
         --numPendingRequests;
@@ -169,13 +192,6 @@ export function makeTileRequest(
       };
       xhr.send();
     }
-    onCancel(() => {
-      let origXhr = xhr;
-      xhr = null;
-      if (origXhr != null) {
-        origXhr.abort();
-      }
-    });
     start(token);
   });
 }

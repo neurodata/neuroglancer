@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import {handleChunkDownloadPromise, registerChunkSource} from 'neuroglancer/chunk_manager/backend';
+import {registerChunkSource} from 'neuroglancer/chunk_manager/backend';
 import {makeRequest, makeTileRequest, makeVolumeRequest, Token} from 'neuroglancer/datasource/theboss/api';
 import {BossSourceParameters, TileChunkSourceParameters, VolumeChunkSourceParameters} from 'neuroglancer/datasource/theboss/base';
 import {ParameterizedVolumeChunkSource, VolumeChunk} from 'neuroglancer/sliceview/backend';
@@ -23,6 +23,7 @@ import {decodeJpegChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/jpe
 import {decodeNdstoreNpzChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/ndstoreNpz';
 import {decodeRawChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/raw';
 import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
+import {CancellationToken} from 'neuroglancer/util/cancellation';
 
 let chunkDecoders = new Map<string, ChunkDecoder>();
 chunkDecoders.set('npz', decodeNdstoreNpzChunk);
@@ -33,7 +34,7 @@ chunkDecoders.set('jpeg', decodeJpegChunk);
 class VolumeChunkSource extends ParameterizedVolumeChunkSource<VolumeChunkSourceParameters> {
   chunkDecoder = chunkDecoders.get(this.parameters.encoding)!;
 
-  download(chunk: VolumeChunk) {
+  download(chunk: VolumeChunk, cancellationToken: CancellationToken) {
     let {parameters} = this;
     let path = 
       `/v0.7/cutout/${parameters.collection}/${parameters.experiment}/${parameters.channel}/${parameters.resolution}`;
@@ -49,9 +50,8 @@ class VolumeChunkSource extends ParameterizedVolumeChunkSource<VolumeChunkSource
     path += '/';
 
     // path += `/neariso/`;
-    handleChunkDownloadPromise(
-        chunk, makeVolumeRequest(parameters.baseUrls, 'GET', path, parameters.token, 'arraybuffer'),
-        this.chunkDecoder);
+    return makeRequest(parameters.baseUrls, 'GET', path, parameters.token, 'arraybuffer', cancellationToken)
+      .then(response => this.chunkDecoder(chunk, response));
   }
 };
 
@@ -59,7 +59,7 @@ class VolumeChunkSource extends ParameterizedVolumeChunkSource<VolumeChunkSource
 class TileChunkSource extends ParameterizedVolumeChunkSource<TileChunkSourceParameters> {
   chunkDecoder = chunkDecoders.get(this.parameters.encoding)!;
 
-  download(chunk: VolumeChunk) {
+  download(chunk: VolumeChunk, cancellationToken: CancellationToken) {
     let {parameters} = this;
     let {chunkGridPosition} = chunk;
 
@@ -69,8 +69,7 @@ class TileChunkSource extends ParameterizedVolumeChunkSource<TileChunkSourcePara
     let path =
         `/v0.7/tile/${parameters.collection}/${parameters.experiment}/${parameters.channel}/${parameters.orientation}/${parameters.tilesize}/${parameters.resolution}/${chunkGridPosition[0]}/${chunkGridPosition[1]}/${chunkGridPosition[2]}/`;
 
-    handleChunkDownloadPromise(
-        chunk, makeTileRequest(parameters.baseUrls, 'GET', path, parameters.token, 'arraybuffer'),
-        this.chunkDecoder);
+    return makeTileRequest(parameters.baseUrls, 'GET', path, parameters.token, 'arraybuffer', cancellationToken)
+      .then(response => this.chunkDecoder(chunk, response));
   }
 }

@@ -29,7 +29,6 @@ import {applyCompletionOffset, getPrefixMatchesWithDescriptions} from 'neuroglan
 import {mat4, vec3} from 'neuroglancer/util/geom';
 import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
 import {parseArray, parseQueryStringParameters, verify3dDimensions, verify3dScale, verify3dVec, verifyEnumString, verifyInt, verifyObject, verifyObjectAsMap, verifyObjectProperty, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
-import {CancellablePromise, cancellableThen} from 'neuroglancer/util/promise';
 
 let serverVolumeTypes = new Map<string, VolumeType>();
 serverVolumeTypes.set('image', VolumeType.IMAGE);
@@ -454,7 +453,7 @@ export function getCoordinateFrame(
 
 export function tokenCollectionAndExperimentCompleter(
     chunkManager: ChunkManager, hostnames: string[],
-    path: string): CancellablePromise<CompletionResult> {
+    path: string): Promise<CompletionResult> {
   let channelMatch = path.match(/^(?:([^\/]+)(?:\/?([^\/]*)(?:\/?([^\/]*)(?:\/?([^\/]*)?))?)?)?$/);
   console.log(channelMatch);
   if (channelMatch === null) {
@@ -489,20 +488,18 @@ export function tokenCollectionAndExperimentCompleter(
         });
     
   }
-  // try to complete the channel TODO
-  return cancellableThen(
-      getExperimentInfo(chunkManager, hostnames, channelMatch[1], channelMatch[3], channelMatch[2]),
-      experimentInfo => {
-        let completions = getPrefixMatchesWithDescriptions(
+  // try to complete the channel (AB TODO)
+  return getExperimentInfo(chunkManager, hostnames, channelMatch[1], channelMatch[3], channelMatch[2]).then(experimentInfo => {
+    let completions = getPrefixMatchesWithDescriptions(
             channelMatch![2], experimentInfo.channels, x => x[0], x => {
               return `${x[1].channelType} (${DataType[x[1].dataType]})`;
             });
-        return {offset: channelMatch![1].length + channelMatch![2].length + 1, completions};
-      });
+      return {offset: channelMatch![1].length + channelMatch![2].length + 1, completions};
+  });
 }
 
 export function volumeCompleter(
-    url: string, chunkManager: ChunkManager): CancellablePromise<CompletionResult> {
+    url: string, chunkManager: ChunkManager): Promise<CompletionResult> {
   let match = url.match(urlPattern);
   if (match === null) {
     // We don't yet have a full hostname.
@@ -510,9 +507,8 @@ export function volumeCompleter(
   }
   let hostnames = [match[1]];
   let path = match[2];
-  return cancellableThen(
-      tokenCollectionAndExperimentCompleter(chunkManager, hostnames, path),
-      completions => applyCompletionOffset(match![1].length + 1, completions));
+  return tokenCollectionAndExperimentCompleter(chunkManager, hostnames, path)
+    .then(completions => applyCompletionOffset(match![1].length + 1, completions));
 }
 
 registerDataSourceFactory('theboss', {
