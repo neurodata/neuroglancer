@@ -30,6 +30,8 @@ import {mat4, vec3} from 'neuroglancer/util/geom';
 import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
 import {parseArray, parseQueryStringParameters, verify3dDimensions, verify3dScale, verify3dVec, verifyEnumString, verifyInt, verifyObject, verifyObjectAsMap, verifyObjectProperty, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
 
+import {CancellationToken, uncancelableToken, CANCELED} from 'neuroglancer/util/cancellation';
+
 let serverVolumeTypes = new Map<string, VolumeType>();
 serverVolumeTypes.set('image', VolumeType.IMAGE);
 // serverVolumeTypes.set('annotation', VolumeType.IMAGE); // TODO: tmp treat annos as image tiles
@@ -358,6 +360,25 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   }
 };
 
+export function getToken(): Promise<string> {
+  let retries = 5; 
+  return new Promise<string>((resolve, reject) => {
+    let retries = 5; 
+    function start() {
+      let token = (<any>window).keycloak.token; 
+      if (token === undefined) {
+        retries--;
+        if (retries < 0) {
+          reject(token);
+        }
+      } else {
+        resolve(token); 
+      }
+    }
+    start();
+  });
+}
+
 const pathPattern = /^([^\/?]+)\/([^\/?]+)(?:\/([^\/?]+))?(?:\?(.*))?$/;
 
 export function getExperimentInfo(
@@ -396,25 +417,27 @@ export function getShardedVolume(chunkManager: ChunkManager, hostnames: string[]
   if (match === null) {
     throw new Error(`Invalid volume path ${JSON.stringify(path)}`);
   }
-  // const token = match[1];
-  const token = (<any>window).keycloak.token; 
-  const collection = match[1];
-  const experiment = match[2];
-  const channel = match[3];
-  const parameters = parseQueryStringParameters(match[4] || '');
-  // Warning: If additional arguments are added, the cache key should be updated as well.
-  return chunkManager.memoize.getUncounted(
-      {'hostnames': hostnames, 'path': path},
-      // TODO: we might need a catch here?
-      () => getExperimentInfo(chunkManager, hostnames, token, experiment, collection)
-                .then(
-                    experimentInfo => getCoordinateFrame(
-                                          chunkManager, hostnames, token,
-                                          experimentInfo.coordFrameKey, experimentInfo)
-                                          .then(
-                                              experimentInfo => new MultiscaleVolumeChunkSource(
-                                                  chunkManager, hostnames, experimentInfo, token,
-                                                  channel, parameters))));
+  return getToken().then((token) => {
+    const collection = match[1];
+    const experiment = match[2];
+    const channel = match[3];
+    const parameters = parseQueryStringParameters(match[4] || '');
+    // Warning: If additional arguments are added, the cache key should be updated as well.
+    return chunkManager.memoize.getUncounted(
+        {'hostnames': hostnames, 'path': path},
+        // TODO: we might need a catch here?
+        () => getExperimentInfo(chunkManager, hostnames, token, experiment, collection)
+                  .then(
+                      experimentInfo => getCoordinateFrame(
+                                            chunkManager, hostnames, token,
+                                            experimentInfo.coordFrameKey, experimentInfo)
+                                            .then(
+                                                experimentInfo => new MultiscaleVolumeChunkSource(
+                                                    chunkManager, hostnames, experimentInfo, token,
+                                                    channel, parameters))));
+  })
+ 
+  
 }
 
 const urlPattern = /^((?:http|https):\/\/[^\/?]+)\/(.*)$/;
@@ -462,9 +485,12 @@ export function tokenCollectionAndExperimentCompleter(
     chunkManager: ChunkManager, hostnames: string[],
     path: string): Promise<CompletionResult> {
     
-  const token = (<any>window).keycloak.token; 
+  let token = getToken().then((token) => { return token; });
+  if (token === undefined) {
+    return Promise.reject<CompletionResult>(null); 
+  }
+
   let channelMatch = path.match(/^(?:([^\/]+)(?:\/?([^\/]*)(?:\/?([^\/]*)(?:\/?([^\/]*)?))?)?)?$/);
-  console.log(channelMatch);
   if (channelMatch === null) {
     // URL has incorrect format, don't return any results.
     return Promise.reject<CompletionResult>(null);

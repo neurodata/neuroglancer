@@ -39,6 +39,7 @@ export function makeRequest(
    * cancelled.
    */
   let xhr: XMLHttpRequest|undefined|null = undefined;
+  console.log(token);
   return new Promise<any>((resolve, reject) => { 
     const abort = () => {
       let origXhr = xhr;
@@ -70,7 +71,7 @@ export function makeRequest(
           resolve(this.response);
         } else if (status === 403 || status === 401) {
           // Authorization needed.
-          // AB TODO
+          // AB TODO -- get token here if request fails 
           --numPendingRequests;
           reject(HttpError.fromXhr(this));
         } else {
