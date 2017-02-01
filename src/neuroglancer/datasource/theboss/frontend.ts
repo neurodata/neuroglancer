@@ -360,7 +360,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   }
 };
 
-export function getToken(): Promise<string> {
+export function getToken(): Promise<any> {
   let retries = 5; 
   return new Promise<string>((resolve, reject) => {
     let retries = 5; 
@@ -485,51 +485,53 @@ export function tokenCollectionAndExperimentCompleter(
     chunkManager: ChunkManager, hostnames: string[],
     path: string): Promise<CompletionResult> {
     
-  let token = getToken().then((token) => { return token; });
-  if (token === undefined) {
-    return Promise.reject<CompletionResult>(null); 
-  }
-
-  let channelMatch = path.match(/^(?:([^\/]+)(?:\/?([^\/]*)(?:\/?([^\/]*)(?:\/?([^\/]*)?))?)?)?$/);
-  if (channelMatch === null) {
-    // URL has incorrect format, don't return any results.
-    return Promise.reject<CompletionResult>(null);
-  }
-  if (channelMatch[1] === undefined) {
-    // No token. Reject.
-    return Promise.reject<CompletionResult>(null);
-  }
-  if (channelMatch[2] === undefined) {
-    let collectionPrefix = channelMatch[1] || '';
-    // Try to complete the collection.
-    return getCollections(chunkManager, hostnames, token)
-      .then(collections => {
-        return {
-          offset: 0,
-          completions: getPrefixMatchesWithDescriptions(
-              collectionPrefix, collections, x => x + '/', () => undefined)
-        };
-    });
-  }
-  if (channelMatch[3] === undefined) {
-    let experimentPrefix = channelMatch[2] || '';
-    return getExperiments(chunkManager, hostnames, token, channelMatch[1])
-        .then(experiments => {
-          return {
-            offset: channelMatch![1].length + 1,
-            completions: getPrefixMatchesWithDescriptions(
-                experimentPrefix, experiments, y => y + '/', () => undefined)
-          };
-        });
+  return getToken().then((token) => { 
     
-  }
-  // try to complete the channel (AB TODO)
-  return getExperimentInfo(chunkManager, hostnames, token, channelMatch[2], channelMatch[1]).then(experimentInfo => {
-    let completions = getPrefixMatchesWithDescriptions(
-            channelMatch![1], experimentInfo.channels, x => x[0], x => {
-              return `${x[1].channelType} (${DataType[x[1].dataType]})`;
-            });
-      return {offset: channelMatch![1].length + channelMatch![2].length + 2, completions};
+    if (token === undefined) {
+      return Promise.reject<CompletionResult>(null); 
+    }
+
+    let channelMatch = path.match(/^(?:([^\/]+)(?:\/?([^\/]*)(?:\/?([^\/]*)(?:\/?([^\/]*)?))?)?)?$/);
+    if (channelMatch === null) {
+      // URL has incorrect format, don't return any results.
+      return Promise.reject<CompletionResult>(null);
+    }
+    if (channelMatch[1] === undefined) {
+      // No token. Reject.
+      return Promise.reject<CompletionResult>(null);
+    }
+    if (channelMatch[2] === undefined) {
+      let collectionPrefix = channelMatch[1] || '';
+      // Try to complete the collection.
+      return getCollections(chunkManager, hostnames, token)
+        .then(collections => {
+          return {
+            offset: 0,
+            completions: getPrefixMatchesWithDescriptions(
+                collectionPrefix, collections, x => x + '/', () => undefined)
+          };
+      });
+    }
+    if (channelMatch[3] === undefined) {
+      let experimentPrefix = channelMatch[2] || '';
+      return getExperiments(chunkManager, hostnames, token, channelMatch[1])
+          .then(experiments => {
+            return {
+              offset: channelMatch![1].length + 1,
+              completions: getPrefixMatchesWithDescriptions(
+                  experimentPrefix, experiments, y => y + '/', () => undefined)
+            };
+          });
+      
+    }
+    // try to complete the channel (AB TODO)
+    return getExperimentInfo(chunkManager, hostnames, token, channelMatch[2], channelMatch[1]).then(experimentInfo => {
+      let completions = getPrefixMatchesWithDescriptions(
+              channelMatch![1], experimentInfo.channels, x => x[0], x => {
+                return `${x[1].channelType} (${DataType[x[1].dataType]})`;
+              });
+        return {offset: channelMatch![1].length + channelMatch![2].length + 2, completions};
+    });
   });
 }
 

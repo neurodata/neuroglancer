@@ -39,7 +39,6 @@ export function makeRequest(
    * cancelled.
    */
   let xhr: XMLHttpRequest|undefined|null = undefined;
-  console.log(token);
   return new Promise<any>((resolve, reject) => { 
     const abort = () => {
       let origXhr = xhr;
