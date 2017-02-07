@@ -48,3 +48,15 @@ export class TileChunkSourceParameters extends BossSourceParameters {
     return `theboss:volume:${parameters.baseUrls[0]}/${parameters.token}/${parameters.collection}/${parameters.experiment}/${parameters.channel}/${parameters.resolution}/${parameters.encoding}`;
   }
 };
+
+export class MeshSourceParameters {
+  baseUrls: string[];
+  channel: string;
+  meshName: string;
+
+  static RPC_ID = 'ndstore/MeshChunkSource';
+
+  static stringify(parameters: MeshSourceParameters) {
+    return `ndstore:mesh:${parameters.baseUrls[0]}/${parameters.channel}/${parameters.meshName}`;
+  }
+};

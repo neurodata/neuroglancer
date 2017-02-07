@@ -22,9 +22,10 @@
 import {ChunkManager} from 'neuroglancer/chunk_manager/frontend';
 import {CompletionResult, registerDataSourceFactory} from 'neuroglancer/datasource/factory';
 import {makeRequest, Token} from 'neuroglancer/datasource/theboss/api';
-import {BossSourceParameters, TileChunkSourceParameters, VolumeChunkSourceParameters} from 'neuroglancer/datasource/theboss/base';
+import {BossSourceParameters, TileChunkSourceParameters, VolumeChunkSourceParameters, MeshSourceParameters} from 'neuroglancer/datasource/theboss/base';
 import {DataType, VolumeChunkSpecification, VolumeSourceOptions, VolumeType} from 'neuroglancer/sliceview/base';
 import {defineParameterizedVolumeChunkSource, MultiscaleVolumeChunkSource as GenericMultiscaleVolumeChunkSource} from 'neuroglancer/sliceview/frontend';
+import {defineParameterizedMeshSource} from 'neuroglancer/mesh/frontend';
 import {applyCompletionOffset, getPrefixMatchesWithDescriptions} from 'neuroglancer/util/completion';
 import {mat4, vec3} from 'neuroglancer/util/geom';
 import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
@@ -41,6 +42,7 @@ const VALID_ENCODINGS = new Set<string>(['npz', 'jpeg']);  //, 'raw', 'jpeg']);
 
 const VolumeChunkSource = defineParameterizedVolumeChunkSource(VolumeChunkSourceParameters);
 const TileChunkSource = defineParameterizedVolumeChunkSource(TileChunkSourceParameters);
+const MeshSource = defineParameterizedMeshSource(MeshSourceParameters);
 
 interface ChannelInfo {
   channelType: string;
@@ -222,6 +224,11 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   }
 
   /**
+   * The Boss experiment name 
+   */
+  experiment: string; 
+
+  /**
    * The Boss channel/layer name.
    */
   channel: string;
@@ -266,6 +273,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     this.channelInfo = channelInfo;
     this.scales = experimentInfo.scales;
     this.token = token;
+    this.experiment = experimentInfo.key;
 
     this.voxelSize = experimentInfo.scales[0].voxelSize;
 
@@ -352,11 +360,12 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     });
   }
 
-  /**
-   * Meshes are not supported.
-   */
-  getMeshSource(): null {
-    return null;
+  getMeshSource() {
+    console.log(this.token);
+    if (this.experiment === 'pinky10') {
+      return MeshSource.get(this.chunkManager, {'baseUrls': this.baseUrls, 'channel': this.channel, 'meshName': 'test'});
+    }
+    return null; 
   }
 };
 

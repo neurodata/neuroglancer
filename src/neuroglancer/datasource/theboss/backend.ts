@@ -16,14 +16,17 @@
 
 import {registerChunkSource} from 'neuroglancer/chunk_manager/backend';
 import {makeRequest, makeTileRequest, makeVolumeRequest, Token} from 'neuroglancer/datasource/theboss/api';
-import {BossSourceParameters, TileChunkSourceParameters, VolumeChunkSourceParameters} from 'neuroglancer/datasource/theboss/base';
+import {BossSourceParameters, TileChunkSourceParameters, VolumeChunkSourceParameters, MeshSourceParameters} from 'neuroglancer/datasource/theboss/base';
 import {ParameterizedVolumeChunkSource, VolumeChunk} from 'neuroglancer/sliceview/backend';
+import {decodeJsonManifestChunk, decodeTriangleVertexPositionsAndIndices, FragmentChunk, ManifestChunk, ParameterizedMeshSource} from 'neuroglancer/mesh/backend';
 import {ChunkDecoder} from 'neuroglancer/sliceview/backend_chunk_decoders';
 import {decodeJpegChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/jpeg';
 import {decodeBossNpzChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/bossNpz';
 import {decodeRawChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/raw';
 import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
 import {CancellationToken} from 'neuroglancer/util/cancellation';
+import {Endianness} from 'neuroglancer/util/endian';
+import {inflate} from 'pako';
 
 let chunkDecoders = new Map<string, ChunkDecoder>();
 chunkDecoders.set('npz', decodeBossNpzChunk);
@@ -71,5 +74,45 @@ class TileChunkSource extends ParameterizedVolumeChunkSource<TileChunkSourcePara
 
     return makeTileRequest(parameters.baseUrls, 'GET', path, parameters.token, 'arraybuffer', cancellationToken)
       .then(response => this.chunkDecoder(chunk, response));
+  }
+}
+
+function decodeFragmentChunk(chunk: FragmentChunk, response: ArrayBuffer) {
+  // response = inflate(new Uint8Array(response)).buffer;
+  //response = new Uint8Array(response.slice(0))
+  let dv = new DataView(response);
+  let numVertices = dv.getUint32(0, true);
+  let numVerticesHigh = dv.getUint32(4, true);
+  if (numVerticesHigh !== 0) {
+    throw new Error(`The number of vertices should not exceed 2^32-1.`);
+  }
+  decodeTriangleVertexPositionsAndIndices(
+      chunk, response, Endianness.LITTLE, /*vertexByteOffset=*/8, numVertices);
+}
+
+@registerChunkSource(MeshSourceParameters)
+class MeshSource extends ParameterizedMeshSource<MeshSourceParameters> {
+  download(chunk: ManifestChunk, cancellationToken: CancellationToken)
+  {
+    console.log(chunk);
+    console.log(cancellationToken); 
+    chunk.fragmentIds = new Array<string>(); 
+    chunk.fragmentIds.push("testng");     
+    return new Promise<void>((resolve, reject) => {
+      let fragmentKeys: string[] = new Array<string>(); 
+      fragmentKeys.push("testng");
+      resolve();
+      reject(); 
+    });
+  }
+  
+  downloadFragment(chunk: FragmentChunk, cancellationToken: CancellationToken) {
+    let {parameters} = this; 
+    // Hard coded mesh for now 
+    const tmpUrl = `https://s3.amazonaws.com/meshes.boss`; 
+    const path = `/bossmesh_${chunk.manifestChunk!.objectId}`;
+    return sendHttpRequest(
+      openShardedHttpRequest(tmpUrl, path), 'arraybuffer', cancellationToken)
+      .then(response => decodeFragmentChunk(chunk, response)); 
   }
 }
