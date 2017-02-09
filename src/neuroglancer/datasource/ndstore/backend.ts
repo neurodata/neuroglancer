@@ -89,7 +89,7 @@ class MeshSource extends ParameterizedMeshSource<MeshSourceParameters> {
   
   downloadFragment(chunk: FragmentChunk, cancellationToken: CancellationToken) {
     let {parameters} = this; 
-    const tmpUrl = `http://brainviz1.cs.jhu.edu/shapes/harris15/`
+    const tmpUrl = `http://brainviz1.cs.jhu.edu/shapes/harris15`
     const path = `/apical.${chunk.manifestChunk!.objectId}.bin`;
     return sendHttpRequest(
       openShardedHttpRequest(tmpUrl, path), 'arraybuffer', cancellationToken)
