@@ -97,10 +97,10 @@ class MeshSource extends ParameterizedMeshSource<MeshSourceParameters> {
     console.log(chunk);
     console.log(cancellationToken); 
     chunk.fragmentIds = new Array<string>(); 
-    chunk.fragmentIds.push("testng");     
+    chunk.fragmentIds.push("0");     
     return new Promise<void>((resolve, reject) => {
       let fragmentKeys: string[] = new Array<string>(); 
-      fragmentKeys.push("testng");
+      fragmentKeys.push("0");
       resolve();
       reject(); 
     });
@@ -110,7 +110,7 @@ class MeshSource extends ParameterizedMeshSource<MeshSourceParameters> {
     let {parameters} = this; 
     // Hard coded mesh for now 
     const tmpUrl = `https://s3.amazonaws.com/meshes.boss`; 
-    const path = `/bossmesh_${chunk.manifestChunk!.objectId}`;
+    const path = `/bossmesh.${chunk.fragmentId}.${chunk.manifestChunk!.objectId}.bin`;
     return sendHttpRequest(
       openShardedHttpRequest(tmpUrl, path), 'arraybuffer', cancellationToken)
       .then(response => decodeFragmentChunk(chunk, response)); 
