@@ -21,9 +21,10 @@
 
 import {ChunkManager} from 'neuroglancer/chunk_manager/frontend';
 import {CompletionResult, registerDataSourceFactory} from 'neuroglancer/datasource/factory';
-import {VolumeChunkSourceParameters} from 'neuroglancer/datasource/ndstore/base';
+import {VolumeChunkSourceParameters, MeshSourceParameters} from 'neuroglancer/datasource/ndstore/base';
 import {DataType, VolumeChunkSpecification, VolumeSourceOptions, VolumeType} from 'neuroglancer/sliceview/base';
 import {defineParameterizedVolumeChunkSource, MultiscaleVolumeChunkSource as GenericMultiscaleVolumeChunkSource} from 'neuroglancer/sliceview/frontend';
+import {defineParameterizedMeshSource} from 'neuroglancer/mesh/frontend';
 import {CancellationToken} from 'neuroglancer/util/cancellation';
 import {applyCompletionOffset, getPrefixMatchesWithDescriptions} from 'neuroglancer/util/completion';
 import {mat4, vec3} from 'neuroglancer/util/geom';
@@ -37,6 +38,7 @@ serverVolumeTypes.set('annotation', VolumeType.SEGMENTATION);
 const VALID_ENCODINGS = new Set<string>(['npz', 'raw', 'jpeg']);
 
 const VolumeChunkSource = defineParameterizedVolumeChunkSource(VolumeChunkSourceParameters);
+const MeshSource = defineParameterizedMeshSource(MeshSourceParameters);
 
 interface ChannelInfo {
   channelType: string;
@@ -179,10 +181,9 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     });
   }
 
-  /**
-   * Meshes are not supported.
-   */
-  getMeshSource(): null { return null; }
+  getMeshSource() { 
+    return MeshSource.get(this.chunkManager, {'baseUrls': this.baseUrls, 'channel': this.channel, 'meshName': 'test'});
+  }
 };
 
 const pathPattern = /^([^\/?]+)(?:\/([^\/?]+))?(?:\?(.*))?$/;
