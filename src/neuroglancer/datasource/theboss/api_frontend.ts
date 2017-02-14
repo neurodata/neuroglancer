@@ -23,12 +23,11 @@ export var implementation = new Implementation();
 let promise: Promise<Token>|null = null;
 let token: Token|null = null;
 
-const status = new StatusMessage(/*delay=*/true);
-
 implementation.getNewTokenPromise = function() {
+  const status = new StatusMessage(/*delay=*/false);
   return new Promise<string>((resolve, reject) => {
     let retries = 3; 
-    function writeLoginStatus(msg = 'Waiting for The Boss authorization.', linkMessage = 'Retry') {
+    function writeLoginStatus(msg = 'Waiting for The Boss authorization...', linkMessage = 'Retry') {
         status.setText(msg + '  ');
         let button = document.createElement('button');
         button.textContent = linkMessage; 
@@ -38,10 +37,10 @@ implementation.getNewTokenPromise = function() {
         });
         status.setVisible(true);
     }
+    writeLoginStatus('Waiting for The Boss authorization...', 'Retry');
     function start() {
       let token = getTokenFromWindow(); 
       if (token === undefined) {
-        writeLoginStatus('Waiting for The Boss authoriazation...', 'Retry');
         retries--;
         if (retries < 0) {
           reject(token);
@@ -51,12 +50,7 @@ implementation.getNewTokenPromise = function() {
         resolve(token); 
       }
     }
-    // start();
-    // Try three times, then let the user try 
-    setTimeout(start, 30); 
-    setTimeout(start, 150); 
-    setTimeout(start, 250);
-    // setTimeout(start, 500);
+    start();
   });
 }
 

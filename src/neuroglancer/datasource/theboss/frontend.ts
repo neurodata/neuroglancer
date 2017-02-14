@@ -42,6 +42,8 @@ serverVolumeTypes.set('annotation', VolumeType.SEGMENTATION);
 
 const VALID_ENCODINGS = new Set<string>(['npz', 'jpeg']);  //, 'raw', 'jpeg']);
 
+const DEFAULT_CUBOID_SIZE = vec3.fromValues(512, 512, 16);
+
 const VolumeChunkSource = defineParameterizedVolumeChunkSource(VolumeChunkSourceParameters);
 const TileChunkSource = defineParameterizedVolumeChunkSource(TileChunkSourceParameters);
 const MeshSource = defineParameterizedMeshSource(MeshSourceParameters);
@@ -251,9 +253,9 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   voxelSize: vec3;
 
   /**
-   * Fixed tileSize for now
+   * cuboidSize
    */
-  tileSize = 1024;
+  cuboidSize: vec3;
 
   constructor(
       public chunkManager: ChunkManager, public baseUrls: string[],
@@ -278,6 +280,16 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     this.experiment = experimentInfo.key;
 
     this.voxelSize = experimentInfo.scales[0].voxelSize;
+  
+    this.cuboidSize = DEFAULT_CUBOID_SIZE;
+    let cuboidXY = verifyOptionalString(parameters['xySize']);
+    if (cuboidXY !== undefined) {
+      this.cuboidSize[0] = this.cuboidSize[1] = verifyInt(cuboidXY);
+    }
+    let cuboidZ = verifyOptionalString(parameters['zSize']);
+    if (cuboidZ !== undefined) {
+      this.cuboidSize[2] = verifyInt(cuboidZ);
+    }
 
     let encoding = verifyOptionalString(parameters['encoding']);
     if (encoding === undefined) {
@@ -344,7 +356,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
             numChannels: this.numChannels,
             volumeType: this.volumeType,
             dataType: this.dataType, voxelSize,
-            chunkDataSizes: [vec3.fromValues(256, 256, 16)],
+            chunkDataSizes: [this.cuboidSize],
             transform: mat4.fromTranslation(
                 mat4.create(), vec3.multiply(vec3.create(), voxelOffset, voxelSize)),
             baseVoxelOffset,
