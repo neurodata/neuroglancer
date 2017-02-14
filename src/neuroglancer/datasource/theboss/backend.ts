@@ -15,7 +15,8 @@
  */
 
 import {registerChunkSource} from 'neuroglancer/chunk_manager/backend';
-import {makeRequest, makeTileRequest, makeVolumeRequest, Token} from 'neuroglancer/datasource/theboss/api';
+import {makeRequest, makeTileRequest, makeVolumeRequest} from 'neuroglancer/datasource/theboss/api';
+import {Token} from 'neuroglancer/datasource/theboss/api';
 import {BossSourceParameters, TileChunkSourceParameters, VolumeChunkSourceParameters, MeshSourceParameters} from 'neuroglancer/datasource/theboss/base';
 import {ParameterizedVolumeChunkSource, VolumeChunk} from 'neuroglancer/sliceview/backend';
 import {decodeJsonManifestChunk, decodeTriangleVertexPositionsAndIndices, FragmentChunk, ManifestChunk, ParameterizedMeshSource} from 'neuroglancer/mesh/backend';
@@ -94,10 +95,9 @@ function decodeFragmentChunk(chunk: FragmentChunk, response: ArrayBuffer) {
 class MeshSource extends ParameterizedMeshSource<MeshSourceParameters> {
   download(chunk: ManifestChunk, cancellationToken: CancellationToken)
   {
-    console.log(chunk);
-    console.log(cancellationToken); 
+    console.log(cancellationToken); /* skipping download for now, so don't log the cancellationToken */
     chunk.fragmentIds = new Array<string>(); 
-    chunk.fragmentIds.push("0");     
+    chunk.fragmentIds.push("0","1");     
     return new Promise<void>((resolve, reject) => {
       let fragmentKeys: string[] = new Array<string>(); 
       fragmentKeys.push("0");

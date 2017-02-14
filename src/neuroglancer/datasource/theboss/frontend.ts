@@ -21,7 +21,7 @@
 
 import {ChunkManager} from 'neuroglancer/chunk_manager/frontend';
 import {CompletionResult, registerDataSourceFactory} from 'neuroglancer/datasource/factory';
-import {makeRequest, Token} from 'neuroglancer/datasource/theboss/api';
+import {makeRequest} from 'neuroglancer/datasource/theboss/api';
 import {BossSourceParameters, TileChunkSourceParameters, VolumeChunkSourceParameters, MeshSourceParameters} from 'neuroglancer/datasource/theboss/base';
 import {DataType, VolumeChunkSpecification, VolumeSourceOptions, VolumeType} from 'neuroglancer/sliceview/base';
 import {defineParameterizedVolumeChunkSource, MultiscaleVolumeChunkSource as GenericMultiscaleVolumeChunkSource} from 'neuroglancer/sliceview/frontend';
@@ -32,6 +32,8 @@ import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_re
 import {parseArray, parseQueryStringParameters, verify3dDimensions, verify3dScale, verify3dVec, verifyEnumString, verifyInt, verifyObject, verifyObjectAsMap, verifyObjectProperty, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
 
 import {CancellationToken, uncancelableToken, CANCELED} from 'neuroglancer/util/cancellation';
+import {getToken} from 'neuroglancer/datasource/theboss/api_frontend';
+import {Token} from 'neuroglancer/datasource/theboss/api';
 
 let serverVolumeTypes = new Map<string, VolumeType>();
 serverVolumeTypes.set('image', VolumeType.IMAGE);
@@ -361,32 +363,12 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   }
 
   getMeshSource() {
-    console.log(this.token);
     if (this.experiment === 'pinky10') {
       return MeshSource.get(this.chunkManager, {'baseUrls': this.baseUrls, 'channel': this.channel, 'meshName': 'test'});
     }
     return null; 
   }
 };
-
-export function getToken(): Promise<any> {
-  let retries = 5; 
-  return new Promise<string>((resolve, reject) => {
-    let retries = 5; 
-    function start() {
-      let token = (<any>window).keycloak.token; 
-      if (token === undefined) {
-        retries--;
-        if (retries < 0) {
-          reject(token);
-        }
-      } else {
-        resolve(token); 
-      }
-    }
-    start();
-  });
-}
 
 const pathPattern = /^([^\/?]+)\/([^\/?]+)(?:\/([^\/?]+))?(?:\?(.*))?$/;
 

@@ -17,9 +17,9 @@
 import {HttpError, openShardedHttpRequest} from 'neuroglancer/util/http_request';
 import {CancellationToken, uncancelableToken, CANCELED} from 'neuroglancer/util/cancellation';
 
-export var numPendingRequests = 0;
+export type Token = any; 
 
-export type Token = any;
+export var numPendingRequests = 0;
 
 export function makeRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
