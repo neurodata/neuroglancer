@@ -524,13 +524,11 @@ export function tokenCollectionAndExperimentCompleter(
               completions: getPrefixMatchesWithDescriptions(
                   experimentPrefix, experiments, y => y + '/', () => undefined)
             };
-          });
-      
+          }); 
     }
-    // try to complete the channel (AB TODO)
     return getExperimentInfo(chunkManager, hostnames, token, channelMatch[2], channelMatch[1]).then(experimentInfo => {
       let completions = getPrefixMatchesWithDescriptions(
-              channelMatch![1], experimentInfo.channels, x => x[0], x => {
+              channelMatch![3], experimentInfo.channels, x => x[0], x => {
                 return `${x[1].channelType} (${DataType[x[1].dataType]})`;
               });
         return {offset: channelMatch![1].length + channelMatch![2].length + 2, completions};
