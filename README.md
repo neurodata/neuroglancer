@@ -23,7 +23,7 @@ Neuroglancer itself is purely a client-side program, but it depends on data bein
 - NDstore/Open Connectome <https://github.com/neurodata/ndstore>
 - DVID <https://github.com/janelia-flyem/dvid>
 - Render <https://github.com/saalfeldlab/render>
-- Precomputed chunk/mesh fragments exposed over HTTP
+- [Precomputed chunk/mesh fragments exposed over HTTP](src/neuroglancer/datasource/precomputed)
 - Single NIfTI files <https://www.nitrc.org/projects/nifti>
 - [Python in-memory volumes](python/README.md) (with automatic mesh generation)
 
@@ -106,6 +106,8 @@ The "frontend" UI thread handles user actions and rendering, while the "backend"
 - [Image Layer Rendering](src/neuroglancer/sliceview/image_layer_rendering.md)
 - [Cross-sectional view implementation architecture](src/neuroglancer/sliceview/README.md)
 - [Compressed segmentation format](src/neuroglancer/sliceview/compressed_segmentation/README.md)
+- [Data chunk management](src/neuroglancer/chunk_manager/)
+- [On-GPU hashing](src/neuroglancer/gpu_hash/)
 
 # Building
 
