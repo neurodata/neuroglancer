@@ -390,7 +390,7 @@ export function getExperimentInfo(
   return chunkManager.memoize.getUncounted(
       {'hostnames': hostnames, 'experiment': experiment, 'collection': collection},
       () => makeRequest(
-                hostnames, 'GET', `/v0.7/collection/${collection}/experiment/${experiment}/`, token,
+                hostnames, 'GET', `/v0.8/collection/${collection}/experiment/${experiment}/`, token,
                 'json')
                 .then(
                     value => parseExperimentInfo(
@@ -410,7 +410,7 @@ export function getChannelInfo(
       },
       () => makeRequest(
                 hostnames, 'GET',
-                `/v0.7/collection/${collection}/experiment/${experiment}/channel/${channel}/`,
+                `/v0.8/collection/${collection}/experiment/${experiment}/channel/${channel}/`,
                 token, 'json')
                 .then(parseChannelInfo))
 }
@@ -456,7 +456,7 @@ export function getVolume(chunkManager: ChunkManager, path: string) {
 export function getCollections(chunkManager: ChunkManager, hostnames: string[], token: Token) {
   return chunkManager.memoize.getUncounted(
       hostnames,
-      () => makeRequest(hostnames, 'GET', '/v0.7/collection/', token, 'json')
+      () => makeRequest(hostnames, 'GET', '/v0.8/collection/', token, 'json')
                 .then(
                     value => verifyObjectProperty(
                         value, 'collections', x => parseArray(x, verifyString))));
@@ -467,7 +467,7 @@ export function getExperiments(
   return chunkManager.memoize.getUncounted(
       {'hostnames': hostnames, 'collection': collection},
       () =>
-          makeRequest(hostnames, 'GET', `/v0.7/collection/${collection}/experiment/`, token, 'json')
+          makeRequest(hostnames, 'GET', `/v0.8/collection/${collection}/experiment/`, token, 'json')
               .then(
                   value => verifyObjectProperty(
                     value, 'experiments', x => parseArray(x, verifyString))));
@@ -479,7 +479,7 @@ export function getCoordinateFrame(
   return chunkManager.memoize.getUncounted(
       {'hostnames': hostnames, 'coordinateframe': key},
       () =>
-          makeRequest(hostnames, 'GET', `/v0.7/coord/${key}/`, token, 'json')
+          makeRequest(hostnames, 'GET', `/v0.8/coord/${key}/`, token, 'json')
               .then(
                   coordinateFrameObj => parseCoordinateFrame(coordinateFrameObj, experimentInfo)));
 }
