@@ -344,7 +344,9 @@ export function volumeCompleter(
     // We don't yet have a full hostname.
     return Promise.reject<CompletionResult>(null);
   }
-  let hostnames = [match[1]];
+
+  // let hostnames = [match[1]];
+  let hostnames = match[1].split(",");
   let path = match[2];
 
   return stackAndProjectCompleter(chunkManager, hostnames, path)
