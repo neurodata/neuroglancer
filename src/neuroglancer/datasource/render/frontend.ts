@@ -306,7 +306,7 @@ export function getShardedVolume(chunkManager: ChunkManager, hostnames: string[]
                         chunkManager, hostnames, ownerInfo, stack, parameters)));
 }
 
-const urlPattern = /^((?:http|https):\/\/[^\/?]+)\/(.*)$/;
+const urlPattern = /^((?:(?:(?:http|https):\/\/[^,\/]+)[^\/?])+)\/(.*)$/;
 
 export function getVolume(chunkManager: ChunkManager, path: string) {
   let match = path.match(urlPattern);
