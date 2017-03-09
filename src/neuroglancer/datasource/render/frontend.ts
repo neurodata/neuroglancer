@@ -313,7 +313,8 @@ export function getVolume(chunkManager: ChunkManager, path: string) {
   if (match === null) {
     throw new Error(`Invalid render volume path: ${JSON.stringify(path)}`);
   }
-  return getShardedVolume(chunkManager, [match[1]], match[2]);
+  let hostnames: string[] = match[1].split(",");
+  return getShardedVolume(chunkManager, hostnames, match[2]);
 }
 
 export function stackAndProjectCompleter(
@@ -345,8 +346,7 @@ export function volumeCompleter(
     return Promise.reject<CompletionResult>(null);
   }
 
-  // let hostnames = [match[1]];
-  let hostnames = match[1].split(",");
+  let hostnames: string[] = match[1].split(",");
   let path = match[2];
 
   return stackAndProjectCompleter(chunkManager, hostnames, path)
