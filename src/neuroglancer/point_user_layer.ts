@@ -39,7 +39,7 @@ require('./image_user_layer.css');
 require('neuroglancer/help_button.css');
 require('neuroglancer/maximize_button.css');
 
-function getPointsWithStatusMessage(
+export function getPointsWithStatusMessage(
     chunkManager: ChunkManager, x: string,
     options: GetPointOptions = {}): Promise<MultiscalePointChunkSource> {
   return StatusMessage.forPromise(
