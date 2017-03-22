@@ -14,17 +14,19 @@
  * limitations under the License.
  */
 
-import {VolumeSourceOptions} from 'neuroglancer/sliceview/base';
-import {MultiscaleVolumeChunkSource, SliceView} from 'neuroglancer/sliceview/frontend';
-import {RenderLayer} from 'neuroglancer/sliceview/renderlayer';
+import {PointSourceOptions} from 'neuroglancer/point/base';
+import {MultiscalePointChunkSource} from 'neuroglancer/point/frontend';
+import {RenderLayer} from 'neuroglancer/point/frontend';
+import {SliceView} from 'neuroglancer/sliceview/frontend';
 import {TrackableAlphaValue, trackableAlphaValue} from 'neuroglancer/trackable_alpha';
+import {vec3} from 'neuroglancer/util/geom';
 import {makeTrackableFragmentMain, makeWatchableShaderError, TrackableFragmentMain} from 'neuroglancer/webgl/dynamic_shader';
 import {ShaderBuilder} from 'neuroglancer/webgl/shader';
 
-export const FRAGMENT_MAIN_START = '//NEUROGLANCER_IMAGE_RENDERLAYER_FRAGMENT_MAIN_START';
+export const FRAGMENT_MAIN_START = '//NEUROGLANCER_POINT_RENDERLAYER_FRAGMENT_MAIN_START';
 
 const DEFAULT_FRAGMENT_MAIN = `void main() {
-  emitGrayscale(toNormalized(getDataValue()));
+  emitRGB(uColor);
 }
 `;
 
@@ -34,26 +36,23 @@ export function getTrackableFragmentMain(value = DEFAULT_FRAGMENT_MAIN) {
   return makeTrackableFragmentMain(value);
 }
 
-export class ImageRenderLayer extends RenderLayer {
-  fragmentMain: TrackableFragmentMain;
+export class PointRenderLayer extends RenderLayer {
   opacity: TrackableAlphaValue;
-  constructor(multiscaleSource: MultiscaleVolumeChunkSource, {
+  constructor(multiscaleSource: MultiscalePointChunkSource, {
     opacity = trackableAlphaValue(0.5),
-    fragmentMain = getTrackableFragmentMain(),
     shaderError = makeWatchableShaderError(),
-    volumeSourceOptions = <VolumeSourceOptions>{},
+    sourceOptions = <PointSourceOptions>{},
   } = {}) {
-    super(multiscaleSource, {shaderError, volumeSourceOptions});
-    this.fragmentMain = fragmentMain;
+    super(multiscaleSource, {shaderError, sourceOptions});
     this.opacity = opacity;
-    this.registerDisposer(opacity.changed.add(() => { this.redrawNeeded.dispatch(); }));
-    this.registerDisposer(fragmentMain.changed.add(() => {
-      this.shaderUpdated = true;
+    this.registerDisposer(opacity.changed.add(() => {
       this.redrawNeeded.dispatch();
     }));
   }
 
-  getShaderKey() { return `sliceview.ImageRenderLayer:${JSON.stringify(this.fragmentMain.value)}`; }
+  getShaderKey() {
+    return `point.PointRenderLayer`;
+  }
 
   defineShader(builder: ShaderBuilder) {
     super.defineShader(builder);
@@ -73,13 +72,15 @@ void emitTransparent() {
 }
 `);
     builder.addFragmentCode(glsl_COLORMAPS);
-    builder.setFragmentMainFunction(FRAGMENT_MAIN_START + '\n' + this.fragmentMain.value);
+    builder.setFragmentMainFunction(FRAGMENT_MAIN_START + '\n' + DEFAULT_FRAGMENT_MAIN);
   }
 
   beginSlice(sliceView: SliceView) {
     let shader = super.beginSlice(sliceView);
     let {gl} = this;
     gl.uniform1f(shader.uniform('uOpacity'), this.opacity.value);
+    gl.uniform3fv(
+        shader.uniform('uColor'), vec3.fromValues(1.0, 0.0, 0.5));  // TODO accept from user
     return shader;
   }
 };

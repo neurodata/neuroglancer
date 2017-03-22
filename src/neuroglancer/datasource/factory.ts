@@ -16,9 +16,10 @@
 
 import {ChunkManager} from 'neuroglancer/chunk_manager/frontend';
 import {MeshSource} from 'neuroglancer/mesh/frontend';
+import {MultiscalePointChunkSource} from 'neuroglancer/point/frontend';
 import {SkeletonSource} from 'neuroglancer/skeleton/frontend';
-import {VolumeType} from 'neuroglancer/sliceview/base';
-import {MultiscaleVolumeChunkSource} from 'neuroglancer/sliceview/frontend';
+import {VolumeType} from 'neuroglancer/sliceview/volume/base';
+import {MultiscaleVolumeChunkSource} from 'neuroglancer/sliceview/volume/frontend';
 import {CancellationToken, uncancelableToken} from 'neuroglancer/util/cancellation';
 import {applyCompletionOffset, CompletionWithDescription} from 'neuroglancer/util/completion';
 
@@ -68,12 +69,18 @@ export interface GetVolumeOptions {
   volumeType?: VolumeType;
 }
 
+export interface GetPointOptions {}
+
 export interface DataSourceFactory {
   description?: string;
   getVolume?:
       (chunkManager: ChunkManager, path: string, options: GetVolumeOptions,
        cancellationToken:
            CancellationToken) => Promise<MultiscaleVolumeChunkSource>| MultiscaleVolumeChunkSource;
+  getPoint?:
+      (chunkManager: ChunkManager, path: string, options: GetPointOptions,
+       cancellationToken:
+           CancellationToken) => Promise<MultiscalePointChunkSource>| MultiscalePointChunkSource;
   getMeshSource?:
       (chunkManager: ChunkManager, path: string,
        cancellationToken: CancellationToken) => Promise<MeshSource>| MeshSource;
@@ -123,6 +130,15 @@ export function getVolume(
   let [factories, path] = getDataSource(url);
   return new Promise<MultiscaleVolumeChunkSource>(resolve => {
     resolve(factories.getVolume!(chunkManager, path, options, cancellationToken));
+  });
+}
+
+export function getPoint(
+    chunkManager: ChunkManager, url: string, options: GetPointOptions = {},
+    cancellationToken = uncancelableToken) {
+  let [factories, path] = getDataSource(url);
+  return new Promise<MultiscalePointChunkSource>(resolve => {
+    resolve(factories.getPoint!(chunkManager, path, options, cancellationToken));
   });
 }
 
