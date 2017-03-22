@@ -16,12 +16,15 @@
 
 import {registerChunkSource} from 'neuroglancer/chunk_manager/backend';
 import {CancellationToken} from 'neuroglancer/util/cancellation';
-import {TileChunkSourceParameters} from 'neuroglancer/datasource/render/base';
+import {TileChunkSourceParameters, PointMatchSourceParameters} from 'neuroglancer/datasource/render/base';
+import {ParameterizedPointChunkSource, PointChunk} from 'neuroglancer/point/backend';
 import {ParameterizedVolumeChunkSource, VolumeChunk} from 'neuroglancer/sliceview/volume/backend';
 import {ChunkDecoder} from 'neuroglancer/sliceview/backend_chunk_decoders';
 import {decodeJpegChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/jpeg';
+import {verifyObject, verifyInt, verifyFloat, verify3dVec, verifyString, parseArray} from 'neuroglancer/util/json';
 import {vec3} from 'neuroglancer/util/geom';
-import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
+import {Float32ArrayBuilder} from 'neuroglancer/util/float32array_builder';
+import {openShardedHttpRequest, sendHttpRequest, sendHttpJsonPostRequest} from 'neuroglancer/util/http_request';
 
 let chunkDecoders = new Map<string, ChunkDecoder>();
 chunkDecoders.set('jpg', decodeJpegChunk);
@@ -58,5 +61,133 @@ class TileChunkSource extends ParameterizedVolumeChunkSource<TileChunkSourcePara
     return sendHttpRequest(
                openShardedHttpRequest(parameters.baseUrls, path), 'arraybuffer', cancellationToken)
         .then(response => this.chunkDecoder(chunk, response));
+  }
+}
+
+
+function decodeSectionIDs(response: any) {
+  let sectionIDs: number[] = []; 
+  parseArray(response, x => {
+    // source.addSectionID(verifyFloat(x["z"]), verifyInt(x["sectionId"])); 
+    verifyObject(x);
+    sectionIDs.push(verifyInt(x["sectionId"]));
+  });
+  
+  return sectionIDs
+}
+
+function parseCoordinateTransform(coordsResult: any): vec3[] {
+  let coords = new Array<vec3>();
+  
+  parseArray(coordsResult, coordsObj => {
+    verifyObject(coordsObj);
+    coords.push(verify3dVec(coordsObj['world']));
+  });
+
+  return coords;
+
+}
+
+function createConversionObject(tileId: string, xcoord: any, ycoord: any) {
+  return {
+    'tileId': tileId,
+    'local': [xcoord, ycoord]
+  };
+}
+
+function conversionObjectToWorld(conversionObjectArray: Array<any>, parameters: PointMatchSourceParameters, cancellationToken: CancellationToken) {
+  let path = `/render-ws/v1/owner/${parameters.owner}/project/${parameters.project}/stack/${parameters.stack}/local-to-world-coordinates`;
+  return sendHttpJsonPostRequest(openShardedHttpRequest(parameters.baseUrls, path, 'PUT'), conversionObjectArray, 'json', cancellationToken);
+}
+
+function localToWorldCoordinates(localCoords: any, tileId: string, zIndex: any, parameters: PointMatchSourceParameters, cancellationToken: CancellationToken) {
+  let path = `/render-ws/v1/owner/${parameters.owner}/project/${parameters.project}/stack/${parameters.stack}/z/${zIndex}/local-to-world-coordinates`;
+  
+  let payload = new Array<any>(); 
+  for( let i=0 ; i<localCoords[0].length ; i++ ) {
+    payload.push(createConversionObject(tileId, localCoords[0][i], localCoords[1][i]));
+  }
+
+  return sendHttpJsonPostRequest(openShardedHttpRequest(parameters.baseUrls, path, 'PUT'), payload, 'json', cancellationToken)
+    .then(parseCoordinateTransform);
+}
+
+function decodePointMatches(chunk: PointChunk, response: any, parameters: PointMatchSourceParameters, cancellationToken: CancellationToken) {
+
+  let vertexPositions = new Float32ArrayBuilder();
+
+  // For each matchObj, we want to convert to an array of p_i, q_i coordinates 
+  return Promise.all(parseArray(response, (matchObj) => {
+    // Convert p and q lists of local points to arrays of conversion objects 
+    let conversionObjects = new Array<any>(); 
+
+    let pId = verifyString(matchObj['pId']);
+    let qId = verifyString(matchObj['qId']);
+    let matches = verifyObject(matchObj['matches']);
+
+    let pMatches = matches['p']; // [[x],[y]]
+    let qMatches = matches['q']; 
+
+    // TODO: check sizes 
+
+    // Create conversion objects 
+    for( let i=0 ; i<pMatches[0].length ; i++ ) {
+      // Create pConversion 
+      conversionObjects.push(createConversionObject(pId, pMatches[0][i] , pMatches[1][i])); 
+      // Create qConversion 
+      conversionObjects.push(createConversionObject(qId, qMatches[0][i] , qMatches[1][i])); 
+    }
+
+    return conversionObjectToWorld(conversionObjects, parameters, cancellationToken); 
+
+  }))
+  .then(allConvertedCoordinates => {
+    for( let i=0 ; i<allConvertedCoordinates.length; i++ ) {
+      let convertedCoordinates = allConvertedCoordinates[i];
+      for( let j=0 ; j<convertedCoordinates.length; j++ ) {
+        let convertedCoordinate = verifyObject(convertedCoordinates[j]); 
+        let point = verify3dVec(convertedCoordinate['world']);
+        vertexPositions.appendArray([point[0], point[1], point[2]])  
+      }
+    }
+    chunk.vertexPositions = vertexPositions.view;
+  });
+ 
+}
+
+function getPointMatches(chunk: PointChunk, sectionIds: number[], parameters: PointMatchSourceParameters, cancellationToken: CancellationToken) {
+  let path = 
+    `/render-ws/v1/owner/${parameters.owner}/matchCollection/${parameters.matchCollection}/group/${sectionIds[0]}/matchesWith/${sectionIds[1]}`;
+  return sendHttpRequest(
+    openShardedHttpRequest(parameters.baseUrls, path), 'json', cancellationToken)
+      .then(response => { return decodePointMatches(chunk, response, parameters, cancellationToken) });
+}
+
+
+function downloadPointMatchChunk(chunk: PointChunk, path: string, parameters: PointMatchSourceParameters , cancellationToken: CancellationToken ): Promise<void> {
+  return sendHttpRequest(
+      openShardedHttpRequest(parameters.baseUrls, path), 'json', cancellationToken)
+        .then(response => 
+          { return getPointMatches(chunk, decodeSectionIDs(response), parameters, cancellationToken); } );  
+}
+
+@registerChunkSource(PointMatchSourceParameters)
+class PointMatchSource extends ParameterizedPointChunkSource<PointMatchSourceParameters> {
+
+  download(chunk: PointChunk, cancellationToken: CancellationToken): Promise<void> {
+    let {parameters} = this; 
+    let {chunkGridPosition} = chunk; 
+    // Convert grid position to global coordinates 
+    let chunkPosition = vec3.create(); 
+
+    // Hard coded tile size to 512 for now 
+    // chunkPosition[0] = chunkGridPosition[0]; //* 512;
+    // chunkPosition[1] = chunkGridPosition[1]; //* 512;
+    chunkPosition[2] = chunkGridPosition[2];
+
+    // Get section IDs 
+    let path = `/render-ws/v1/owner/${parameters.owner}/project/${parameters.project}/stack/${parameters.stack}/sectionData?minZ=${chunkPosition[2]}&maxZ=${chunkPosition[2]+1}`
+
+    return downloadPointMatchChunk(chunk, path, parameters, cancellationToken);
   }
 }

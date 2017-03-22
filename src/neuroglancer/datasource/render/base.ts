@@ -34,3 +34,14 @@ export class TileChunkSourceParameters extends RenderSourceParameters {
         }/${parameters.project}/${parameters.stack}/${parameters.level}/${parameters.encoding}`;
   }
 }
+
+export class PointMatchSourceParameters extends RenderSourceParameters {
+  matchCollection: string; 
+
+  static RPC_ID = 'render/PointMatchSource'; 
+
+  static stringify(parameters: PointMatchSourceParameters) {
+    return `render:pointmatch:${parameters.baseUrls[0]}/${parameters.owner}/${parameters.project}/${parameters.stack}`
+  }
+  
+}
