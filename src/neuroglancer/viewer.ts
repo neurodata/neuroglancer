@@ -29,6 +29,7 @@ import {overlaysOpen} from 'neuroglancer/overlay';
 import {PositionStatusPanel} from 'neuroglancer/position_status_panel';
 import {TrackableBoolean} from 'neuroglancer/trackable_boolean';
 import {TrackableValue} from 'neuroglancer/trackable_value';
+import {TrackableBlendValue, trackableBlendValue, BLEND_MODES} from 'neuroglancer/trackable_blend';
 import {RefCounted} from 'neuroglancer/util/disposable';
 import {vec3} from 'neuroglancer/util/geom';
 import {GlobalKeyboardShortcutHandler, KeySequenceMap} from 'neuroglancer/util/keyboard_shortcut_handler';
@@ -64,6 +65,8 @@ export class Viewer extends RefCounted implements ViewerState {
   dataDisplayLayout: DataDisplayLayout;
   showScaleBar = new TrackableBoolean(true, true);
   showPerspectiveSliceViews = new TrackableBoolean(true, true);
+
+  blendMode: TrackableBlendValue = trackableBlendValue(BLEND_MODES.DEFAULT);
 
   layerPanel: LayerPanel;
   layerSelectedValues =
@@ -109,6 +112,8 @@ export class Viewer extends RefCounted implements ViewerState {
     state.add('perspectiveZoom', this.perspectiveNavigationState.zoomFactor);
     state.add('showSlices', this.showPerspectiveSliceViews);
     state.add('layout', this.layoutName);
+
+    state.add('blend', this.blendMode);
 
     this.registerDisposer(
       this.navigationState.changed.add(() => { this.handleNavigationStateChanged(); }));
@@ -179,6 +184,7 @@ export class Viewer extends RefCounted implements ViewerState {
       keyCommands.set(command, function() { this.layerManager.invokeAction(command); });
     }
 
+    keyCommands.set('toggle-additive-blending', function() { this.blendMode.value === BLEND_MODES.DEFAULT ? this.blendMode.value = BLEND_MODES.ADDITIVE : this.blendMode.value = BLEND_MODES.DEFAULT; });
     keyCommands.set('toggle-axis-lines', function() { this.showAxisLines.toggle(); });
     keyCommands.set('toggle-scale-bar', function() { this.showScaleBar.toggle(); });
     this.keyCommands.set(

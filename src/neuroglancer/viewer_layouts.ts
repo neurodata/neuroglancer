@@ -23,6 +23,7 @@ import {PerspectivePanel} from 'neuroglancer/perspective_view/panel';
 import {SliceView} from 'neuroglancer/sliceview/frontend';
 import {SliceViewPanel} from 'neuroglancer/sliceview/panel';
 import {TrackableBoolean} from 'neuroglancer/trackable_boolean';
+import {TrackableBlendValue} from 'neuroglancer/trackable_blend';
 import {RefCounted} from 'neuroglancer/util/disposable';
 import {removeChildren} from 'neuroglancer/util/dom';
 import {mat4, quat} from 'neuroglancer/util/geom';
@@ -31,6 +32,7 @@ export interface SliceViewViewerState {
   chunkManager: ChunkManager;
   navigationState: NavigationState;
   layerManager: LayerManager;
+  blendMode: TrackableBlendValue;
 }
 
 export interface ViewerUIState extends SliceViewViewerState {
@@ -55,7 +57,7 @@ export function makeSliceView(viewerState: SliceViewViewerState, baseToSelf?: qu
                 viewerState.navigationState.pose.orientation, baseToSelf)),
         viewerState.navigationState.zoomFactor);
   }
-  return new SliceView(viewerState.chunkManager, viewerState.layerManager, navigationState);
+  return new SliceView(viewerState.chunkManager, viewerState.layerManager, navigationState, viewerState.blendMode);
 }
 
 export function makeOrthogonalSliceViews(viewerState: SliceViewViewerState) {
