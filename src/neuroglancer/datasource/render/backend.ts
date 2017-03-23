@@ -98,35 +98,17 @@ function conversionObjectToWorld(conversionObjectArray: Array<any>, parameters: 
   return sendHttpJsonPostRequest(openShardedHttpRequest(parameters.baseUrls, path, 'PUT'), conversionObjectArray, 'json', cancellationToken);
 }
 
-function localToWorldCoordinates(localCoords: any, tileId: string, zIndex: any, parameters: PointMatchSourceParameters, cancellationToken: CancellationToken) {
-  let path = `/render-ws/v1/owner/${parameters.owner}/project/${parameters.project}/stack/${parameters.stack}/z/${zIndex}/local-to-world-coordinates`;
-  
-  let payload = new Array<any>(); 
-  for( let i=0 ; i<localCoords[0].length ; i++ ) {
-    payload.push(createConversionObject(tileId, localCoords[0][i], localCoords[1][i]));
-  }
-
-  return sendHttpJsonPostRequest(openShardedHttpRequest(parameters.baseUrls, path, 'PUT'), payload, 'json', cancellationToken)
-    .then(parseCoordinateTransform);
-}
-
 function decodePointMatches(chunk: PointChunk, response: any, parameters: PointMatchSourceParameters, cancellationToken: CancellationToken) {
 
-  let vertexPositions = new Float32ArrayBuilder();
+  let conversionObjects = new Array<any>();
 
-  // For each matchObj, we want to convert to an array of p_i, q_i coordinates 
-  return Promise.all(parseArray(response, (matchObj) => {
-    // Convert p and q lists of local points to arrays of conversion objects 
-    let conversionObjects = new Array<any>(); 
-
+  parseArray(response, (matchObj) => {
     let pId = verifyString(matchObj['pId']);
     let qId = verifyString(matchObj['qId']);
     let matches = verifyObject(matchObj['matches']);
 
     let pMatches = matches['p']; // [[x],[y]]
     let qMatches = matches['q']; 
-
-    // TODO: check sizes 
 
     // Create conversion objects 
     for( let i=0 ; i<pMatches[0].length ; i++ ) {
@@ -135,22 +117,19 @@ function decodePointMatches(chunk: PointChunk, response: any, parameters: PointM
       // Create qConversion 
       conversionObjects.push(createConversionObject(qId, qMatches[0][i] , qMatches[1][i])); 
     }
-
-    return conversionObjectToWorld(conversionObjects, parameters, cancellationToken); 
-
-  }))
-  .then(allConvertedCoordinates => {
-    for( let i=0 ; i<allConvertedCoordinates.length; i++ ) {
-      let convertedCoordinates = allConvertedCoordinates[i];
-      for( let j=0 ; j<convertedCoordinates.length; j++ ) {
-        let convertedCoordinate = verifyObject(convertedCoordinates[j]); 
-        let point = verify3dVec(convertedCoordinate['world']);
-        vertexPositions.appendArray([point[0], point[1], point[2]])  
-      }
-    }
-    chunk.vertexPositions = vertexPositions.view;
   });
- 
+
+  return conversionObjectToWorld(conversionObjects, parameters, cancellationToken).then(
+      allConvertedCoordinates => { 
+        let vertexPositions = new Float32ArrayBuilder();
+        for( let i=0 ; i<allConvertedCoordinates.length; i++ ) {
+          let convertedCoordinate = verifyObject(allConvertedCoordinates[i]); 
+          let point = verify3dVec(convertedCoordinate['world']);
+          vertexPositions.appendArray([point[0], point[1], point[2]])  
+        }
+        chunk.vertexPositions = vertexPositions.view;
+      }
+    );
 }
 
 function getPointMatches(chunk: PointChunk, sectionIds: string[], parameters: PointMatchSourceParameters, cancellationToken: CancellationToken) {
