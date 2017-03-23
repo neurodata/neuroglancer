@@ -186,7 +186,7 @@ class PointMatchSource extends ParameterizedPointChunkSource<PointMatchSourcePar
     chunkPosition[2] = chunkGridPosition[2];
 
     // Get section IDs 
-    let path = `/render-ws/v1/owner/${parameters.owner}/project/${parameters.project}/stack/${parameters.stack}/sectionData?minZ=${chunkPosition[2]}&maxZ=${chunkPosition[2]+1}`
+    let path = `/render-ws/v1/owner/${parameters.owner}/project/${parameters.project}/stack/${parameters.stack}/sectionData?minZ=${chunkPosition[2]}&maxZ=${chunkPosition[2]+parameters.zoffset}`
 
     return downloadPointMatchChunk(chunk, path, parameters, cancellationToken);
   }

@@ -37,7 +37,8 @@ export class TileChunkSourceParameters extends RenderSourceParameters {
 
 export class PointMatchSourceParameters extends RenderSourceParameters {
   matchCollection: string; 
-
+  zoffset: number; 
+  
   static RPC_ID = 'render/PointMatchSource'; 
 
   static stringify(parameters: PointMatchSourceParameters) {

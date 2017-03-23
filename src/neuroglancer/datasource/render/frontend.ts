@@ -398,6 +398,7 @@ export class MultiscalePointChunkSource implements GenericMultiscalePointChunkSo
   stackInfo: StackInfo;
 
   matchCollection: string; 
+  zoffset: number; 
 
   dims: vec3;
 
@@ -430,6 +431,12 @@ export class MultiscalePointChunkSource implements GenericMultiscalePointChunkSo
       matchCollection = stack;
     }
     this.matchCollection = matchCollection;
+
+    let zoffset = verifyOptionalInt(parameters['zoffset']);
+    if (zoffset === undefined) {
+      zoffset = 1; 
+    }
+    this.zoffset = zoffset;
 
     this.dims = vec3.create();
 
@@ -473,7 +480,8 @@ export class MultiscalePointChunkSource implements GenericMultiscalePointChunkSo
       'project': this.stackInfo.project,
       'stack': this.stack,
       'encoding': 'points',
-      'matchCollection': this.matchCollection
+      'matchCollection': this.matchCollection,
+      'zoffset': this.zoffset
     });
 
     return [[source]];
