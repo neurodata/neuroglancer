@@ -68,11 +68,10 @@ class TileChunkSource extends ParameterizedVolumeChunkSource<TileChunkSourcePara
 function decodeSectionIDs(response: any) {
   let sectionIDs: number[] = []; 
   parseArray(response, x => {
-    // source.addSectionID(verifyFloat(x["z"]), verifyInt(x["sectionId"])); 
     verifyObject(x);
     sectionIDs.push(verifyInt(x["sectionId"]));
   });
-  
+  console.log(sectionIDs);
   return sectionIDs
 }
 
@@ -156,8 +155,17 @@ function decodePointMatches(chunk: PointChunk, response: any, parameters: PointM
 }
 
 function getPointMatches(chunk: PointChunk, sectionIds: number[], parameters: PointMatchSourceParameters, cancellationToken: CancellationToken) {
-  let path = 
+  let path: string; 
+  if (sectionIds.length == 1) {
+    path = 
+    `/render-ws/v1/owner/${parameters.owner}/matchCollection/${parameters.matchCollection}/group/${sectionIds[0]}/matchesWith/${sectionIds[0]}`;
+  } else if (sectionIds.length == 2) {
+    path = 
     `/render-ws/v1/owner/${parameters.owner}/matchCollection/${parameters.matchCollection}/group/${sectionIds[0]}/matchesWith/${sectionIds[1]}`;
+  } else {
+    throw new  Error(`Invalid section Id vector of length: ${JSON.stringify(sectionIds.length)}`);
+  }
+   
   return sendHttpRequest(
     openShardedHttpRequest(parameters.baseUrls, path), 'json', cancellationToken)
       .then(response => { return decodePointMatches(chunk, response, parameters, cancellationToken) });
