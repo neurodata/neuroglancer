@@ -34,6 +34,7 @@ import {FramebufferConfiguration, makeTextureBuffers, StencilBuffer} from 'neuro
 import {ShaderBuilder, ShaderModule, ShaderProgram} from 'neuroglancer/webgl/shader';
 import {getSquareCornersBuffer} from 'neuroglancer/webgl/square_corners_buffer';
 import {registerSharedObjectOwner, RPC} from 'neuroglancer/worker_rpc';
+import {TrackableBlendValue, BLEND_FUNCTIONS, BLEND_MODES} from 'neuroglancer/trackable_blend';
 
 export type GenericChunkKey = string;
 
@@ -74,7 +75,7 @@ export class SliceView extends SliceViewBase {
 
   constructor(
       public chunkManager: ChunkManager, public layerManager: LayerManager,
-      public navigationState: NavigationState) {
+      public navigationState: NavigationState, public blendingMode: TrackableBlendValue) {
     super();
     mat4.identity(this.dataToViewport);
     this.initializeCounterpart(this.chunkManager.rpc!, {'chunkManager': chunkManager.rpcId});
@@ -101,6 +102,8 @@ export class SliceView extends SliceViewBase {
         chunkManager.chunkQueueManager.visibleChunksChanged.add(this.viewChanged.dispatch));
 
     this.updateViewportFromNavigationState();
+
+    this.registerDisposer(blendingMode.changed.add(this.viewChanged.dispatch)); 
   }
 
   private updateViewportFromNavigationState() {
@@ -226,7 +229,7 @@ export class SliceView extends SliceViewBase {
       if (renderLayerNum === 1) {
         // Turn on blending after the first layer.
         gl.enable(gl.BLEND);
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        BLEND_FUNCTIONS.get(this.blendingMode.value)!(gl);
       }
       renderLayer.draw(this);
       ++renderLayerNum;

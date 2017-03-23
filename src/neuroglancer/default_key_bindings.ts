@@ -41,6 +41,7 @@ export function makeDefaultKeyBindings(keyMap: KeySequenceMap) {
   keyMap.bind('keys', 'toggle-show-slices');
   keyMap.bind('keyb', 'toggle-scale-bar');
   keyMap.bind('keya', 'toggle-axis-lines');
+  keyMap.bind('shift+keyb', 'toggle-additive-blending');
 
   for (let i = 1; i <= 9; ++i) {
     keyMap.bind('digit' + i, 'toggle-layer-' + i);
