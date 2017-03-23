@@ -66,12 +66,11 @@ class TileChunkSource extends ParameterizedVolumeChunkSource<TileChunkSourcePara
 
 
 function decodeSectionIDs(response: any) {
-  let sectionIDs: number[] = []; 
+  let sectionIDs: string[] = []; 
   parseArray(response, x => {
     verifyObject(x);
-    sectionIDs.push(verifyInt(x["sectionId"]));
+    sectionIDs.push(verifyString(x["sectionId"]));
   });
-  console.log(sectionIDs);
   return sectionIDs
 }
 
@@ -154,7 +153,7 @@ function decodePointMatches(chunk: PointChunk, response: any, parameters: PointM
  
 }
 
-function getPointMatches(chunk: PointChunk, sectionIds: number[], parameters: PointMatchSourceParameters, cancellationToken: CancellationToken) {
+function getPointMatches(chunk: PointChunk, sectionIds: string[], parameters: PointMatchSourceParameters, cancellationToken: CancellationToken) {
   let path: string; 
   if (sectionIds.length == 1) {
     path = 
