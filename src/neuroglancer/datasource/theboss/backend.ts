@@ -34,6 +34,10 @@ chunkDecoders.set('npz', decodeBossNpzChunk);
 chunkDecoders.set('jpeg', decodeJpegChunk);
 // chunkDecoders.set('raw', decodeRawChunk);
 
+let acceptHeaders = new Map<string, string>();
+acceptHeaders.set('npz', 'application/npygz');
+acceptHeaders.set('jpeg', 'image/jpeg');
+
 @registerChunkSource(VolumeChunkSourceParameters)
 class VolumeChunkSource extends ParameterizedVolumeChunkSource<VolumeChunkSourceParameters> {
   chunkDecoder = chunkDecoders.get(this.parameters.encoding)!;
@@ -53,8 +57,10 @@ class VolumeChunkSource extends ParameterizedVolumeChunkSource<VolumeChunkSource
     }
     path += '/';
 
+    let acceptHeader = acceptHeaders.get(parameters.encoding)!; 
+
     // path += `/neariso/`;
-    return makeVolumeRequest(parameters.baseUrls, 'GET', path, parameters.token, 'arraybuffer', cancellationToken)
+    return makeVolumeRequest(parameters.baseUrls, 'GET', path, parameters.token, acceptHeader, 'arraybuffer', cancellationToken)
       .then(response => this.chunkDecoder(chunk, response));
   }
 };

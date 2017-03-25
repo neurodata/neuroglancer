@@ -154,19 +154,11 @@ function parseChannelInfo(obj: any): ChannelInfo {
   verifyObject(obj);
   let channelType = verifyObjectProperty(obj, 'type', verifyString);
 
-  let dataType = verifyObjectProperty(obj, 'datatype', x => verifyEnumString(x, DataType)); 
-  // AB TODO: try parsing npz 
-  /*
-  if (channelType === 'annotation') 
-  {
-    dataType = DataType.UINT8; // force 3-channel UINT8 for annotation tiles 
-  }
-  */
   return {
     channelType,
     description: verifyObjectProperty(obj, 'description', verifyString),
     volumeType: getVolumeTypeFromChannelType(channelType),
-    dataType: dataType,
+    dataType: verifyObjectProperty(obj, 'datatype', x => verifyEnumString(x, DataType)),
     key: verifyObjectProperty(obj, 'name', verifyString),
   };
 }
@@ -293,8 +285,8 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
 
     let encoding = verifyOptionalString(parameters['encoding']);
     if (encoding === undefined) {
-      // encoding = this.volumeType === VolumeType.IMAGE ? 'jpeg' : 'npz';
-      encoding = 'npz';
+      encoding = this.volumeType === VolumeType.IMAGE ? 'jpeg' : 'npz';
+      // encoding = 'npz';
     } else {
       if (!VALID_ENCODINGS.has(encoding)) {
         throw new Error(`Invalid encoding: ${JSON.stringify(encoding)}.`);

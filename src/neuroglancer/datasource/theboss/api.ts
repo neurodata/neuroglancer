@@ -85,17 +85,17 @@ export function makeRequest(
 }
 
 export function makeVolumeRequest(
-    baseUrls: string|string[], method: string, path: string, token: string,
+    baseUrls: string|string[], method: string, path: string, token: string, acceptHeader: string,
     responseType: string, cancellationToken?: CancellationToken): Promise<ArrayBuffer>;
 export function makeVolumeRequest(
-    baseUrls: string|string[], method: string, path: string, token: string,
+    baseUrls: string|string[], method: string, path: string, token: string, acceptHeader: string,
     responseType: string, cancellationToken?: CancellationToken): Promise<any>;
 export function makeVolumeRequest(
-    baseUrls: string|string[], method: string, path: string, token: string,
+    baseUrls: string|string[], method: string, path: string, token: string, acceptHeader: string,
     responseType: string, cancellationToken?: CancellationToken): any;
 
 export function makeVolumeRequest(
-    baseUrls: string|string[], method: string, path: string, token: string,
+    baseUrls: string|string[], method: string, path: string, token: string, acceptHeader: string,
     responseType: string, cancellationToken: CancellationToken = uncancelableToken): any {
   /**
    * undefined means request not yet attempted.  null means request
@@ -122,7 +122,8 @@ export function makeVolumeRequest(
       // xhr.setRequestHeader('Authorization', `Token ${token}`);
       // xhr.setRequestHeader('Authorization', `Bearer ${(<any>window).keycloak.token}`);
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.setRequestHeader('Accept', 'application/npygz');
+      // xhr.setRequestHeader('Accept', 'application/npygz');
+      xhr.setRequestHeader('Accept', acceptHeader);
       xhr.onloadend = function(this: XMLHttpRequest) {
         if (xhr === null) {
           --numPendingRequests;
