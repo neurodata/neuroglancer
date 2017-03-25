@@ -35,7 +35,8 @@ class VolumeChunkSource extends ParameterizedVolumeChunkSource<VolumeChunkSource
 
   download(chunk: VolumeChunk, cancellationToken: CancellationToken) {
     let {parameters} = this;
-    let path = `/nd/sd/${parameters.key}/${parameters.channel}/` + `${parameters.encoding}/${parameters.resolution}`;
+    let path = `${parameters.urlPrefix}/${parameters.key}/${parameters.channel}/` +
+        `${parameters.encoding}/${parameters.resolution}`;
     {
       // chunkPosition must not be captured, since it will be invalidated by the next call to
       // computeChunkBounds.

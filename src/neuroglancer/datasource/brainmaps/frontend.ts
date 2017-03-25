@@ -167,9 +167,12 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     if (validMesh === undefined) {
       return null;
     }
-    return getMeshSource(
-        this.chunkManager,
-        {'instance': this.instance, 'volumeId': this.volumeId, 'meshName': validMesh.name});
+    return getMeshSource(this.chunkManager, {
+      'instance': this.instance,
+      'volumeId': this.volumeId,
+      'meshName': validMesh.name,
+      'changeSpec': this.changeSpec,
+    });
   }
 };
 
@@ -259,7 +262,8 @@ function parseProject(obj: any): ProjectMetadata {
 function parseProjectList(obj: any) {
   try {
     verifyObject(obj);
-    return verifyObjectProperty(obj, 'project', x => parseArray(x, parseProject));
+    return verifyObjectProperty(
+        obj, 'project', x => x === undefined ? [] : parseArray(x, parseProject));
   } catch (parseError) {
     throw new Error(`Error parsing project list: ${parseError.message}`);
   }
@@ -276,8 +280,8 @@ export class VolumeList {
     }
     try {
       verifyObject(volumesResponse);
-      let volumeIds = this.volumeIds =
-          verifyObjectProperty(volumesResponse, 'volumeId', x => parseArray(x, verifyString));
+      let volumeIds = this.volumeIds = verifyObjectProperty(
+          volumesResponse, 'volumeId', x => x === undefined ? [] : parseArray(x, verifyString));
       volumeIds.sort();
       let hierarchicalSets = new Map<string, Set<string>>();
       for (let volumeId of volumeIds) {
