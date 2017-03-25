@@ -122,7 +122,6 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   urlPrefix: string = NDSTORE_URL_PREFIX;
   neariso: boolean = true;
   encoding: string;
-  neariso: boolean;
 
   constructor(
       public chunkManager: ChunkManager, public baseUrls: string[], public key: string,
@@ -162,12 +161,6 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
       }
     }
     this.encoding = encoding;
-
-    this.neariso = true;
-    let neariso = verifyOptionalString(parameters['neariso']);
-    if (neariso === 'false') {
-      this.neariso = false;
-    }
 
   }
 
