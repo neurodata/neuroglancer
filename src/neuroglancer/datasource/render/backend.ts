@@ -133,8 +133,17 @@ function decodePointMatches(chunk: PointChunk, response: any, parameters: PointM
         for( let i=0 ; i<tmpVertexPositions.length ; i+=6 ) {
           let pt1 = vec3.fromValues( tmpVertexPositions.view[i] , tmpVertexPositions.view[i + 1] , tmpVertexPositions.view[i + 2] );
           let pt2 = vec3.fromValues( tmpVertexPositions.view[i + 3] , tmpVertexPositions.view[i + 4] , tmpVertexPositions.view[i + 5] );
-          let difference = vec3.create();
           
+          let direction = vec3.fromValues(pt2[0] - pt1[0] , pt2[1] - pt1[1], 0);
+          let pt1normal = vec3.create();
+          vec3.cross(pt1normal, direction, vec3.fromValues(0, 0, 1));
+          vec3.div(pt1normal, pt1normal, [vec3.len(pt1normal), vec3.len(pt1normal), vec3.len(pt1normal)]);
+
+          let pt2normal = vec3.create();
+          vec3.cross(pt2normal, direction, vec3.fromValues(0, 0, -1));
+          vec3.div(pt2normal, pt2normal, [vec3.len(pt2normal), vec3.len(pt2normal), vec3.len(pt2normal)]);
+
+/*
           let pt1normal = vec3.fromValues(-pt1[1], pt1[0], 0);
           pt1normal[0] /= vec3.len(pt1normal); 
           pt1normal[1] /= vec3.len(pt1normal); 
@@ -142,7 +151,7 @@ function decodePointMatches(chunk: PointChunk, response: any, parameters: PointM
           let pt2normal = vec3.fromValues(-pt2[1], pt2[0], 0);
           pt2normal[0] /= vec3.len(pt2normal);
           pt2normal[1] /= vec3.len(pt2normal);
-          
+  */        
           /*
           difference[0] = pt1[0] - pt2[0];
           difference[1] = pt2[1] - pt1[1];
@@ -152,18 +161,18 @@ function decodePointMatches(chunk: PointChunk, response: any, parameters: PointM
           */
 
           vertexPositions.appendArray([ pt1[0] , pt1[1] , pt1[2] ]); // 1 
-          vertexNormals.appendArray([ -pt1normal[0], -pt1normal[1], -pt1normal[2] ]);
-          vertexPositions.appendArray([ pt1[0] , pt1[1] , pt1[2] ]); // 2
           vertexNormals.appendArray([ pt1normal[0], pt1normal[1], pt1normal[2] ]);
+          vertexPositions.appendArray([ pt1[0] , pt1[1] , pt1[2] ]); // 2
+          vertexNormals.appendArray([ pt2normal[0], pt2normal[1], pt2normal[2] ]);
           vertexPositions.appendArray([ pt2[0] , pt2[1] , pt2[2] ]); // 3
-          vertexNormals.appendArray([ -pt2normal[0], -pt2normal[1], -pt2normal[2] ]);
+          vertexNormals.appendArray([ pt1normal[0], pt1normal[1], pt1normal[2] ]);
 
           vertexPositions.appendArray([ pt1[0] , pt1[1] , pt1[2] ]); // 2 
-          vertexNormals.appendArray([ pt1normal[0], pt1normal[1], pt1normal[2] ]);
+          vertexNormals.appendArray([ pt2normal[0], pt2normal[1], pt2normal[2] ]);
           vertexPositions.appendArray([ pt2[0] , pt2[1] , pt2[2] ]); // 4
-          vertexNormals.appendArray([ pt1normal[0], pt1normal[1], pt1normal[2] ]);
+          vertexNormals.appendArray([ pt2normal[0], pt2normal[1], pt2normal[2] ]);
           vertexPositions.appendArray([ pt2[0] , pt2[1] , pt2[2] ]); // 3 
-          vertexNormals.appendArray([ -pt1normal[0], -pt1normal[1], -pt1normal[2] ]);
+          vertexNormals.appendArray([ pt1normal[0], pt1normal[1], pt1normal[2] ]);
 
           /*
           vertexNormals.appendArray([-difference[0], -difference[1], 0]);
