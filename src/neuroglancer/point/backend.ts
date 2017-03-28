@@ -26,6 +26,8 @@ import {registerRPC, registerSharedObject, RPC, SharedObjectCounterpart} from 'n
 export class PointChunk extends SliceViewChunk {
   source: PointChunkSource|null = null;
   vertexPositions: Float32Array|null = null;
+  vertexNormals: Float32Array|null = null;
+  hasVertexNormals: boolean = false; 
   constructor() {
     super();
   }
@@ -39,26 +41,39 @@ export class PointChunk extends SliceViewChunk {
     this.gpuMemoryBytes = source!.spec.chunkBytes;
 
     this.vertexPositions = null;
+    this.vertexNormals = null;
   }
 
 
   serialize(msg: any, transfers: any[]) {
     super.serialize(msg, transfers);
-    let {vertexPositions} = this;
+    let {vertexPositions, vertexNormals} = this;
     msg['vertexPositions'] = vertexPositions;
     let vertexPositionsBuffer = vertexPositions!.buffer;
     transfers.push(vertexPositionsBuffer);
 
+    // TODO: might be able to switch this back to checking if vertexNormals are null
+    if (this.hasVertexNormals) {
+      msg['vertexNormals'] = vertexNormals;
+      let vertexNormalsBuffer = vertexNormals!.buffer;
+      transfers.push(vertexNormalsBuffer);
+    }
+    this.vertexNormals = null; 
     this.vertexPositions = null;
   }
 
   downloadSucceeded() {
-    this.systemMemoryBytes = this.gpuMemoryBytes = this.vertexPositions!.byteLength;
+    let byteLength = this.vertexPositions!.byteLength; 
+    if (this.vertexNormals !== null) {
+      byteLength += this.vertexNormals!.byteLength;
+    }
+    this.systemMemoryBytes = this.gpuMemoryBytes = byteLength;
     super.downloadSucceeded();
   }
 
   freeSystemMemory() {
     this.vertexPositions = null;
+    this.vertexNormals = null; 
   }
 };
 

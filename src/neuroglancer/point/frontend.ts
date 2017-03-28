@@ -73,14 +73,23 @@ export class RenderLayer extends GenericSliceViewRenderLayer {
   defineShader(builder: ShaderBuilder) {
     builder.addFragmentCode(`
 void emit(vec4 color) {
-  gl_FragData[0] = color;
+  gl_FragColor = color; 
 }
 `);
 
     builder.addAttribute('highp vec3', 'aVertexPosition');
+    builder.addAttribute('highp vec3', 'aNormal');
+    builder.addVarying('vec3', 'vNormal');
     builder.addUniform('highp vec3', 'uColor');
     builder.addUniform('highp mat4', 'uProjection');
-    builder.setVertexMain(`gl_Position = uProjection * vec4(aVertexPosition, 1.0);`);
+    builder.addUniform('float', 'uLineWidth');
+    builder.setVertexMain(`
+  vNormal = aNormal; 
+  vec4 delta = vec4(aNormal * uLineWidth, 0.0);
+  vec4 pos = vec4(aVertexPosition, 1.0); 
+  gl_Position = uProjection * (pos + delta);
+    `);
+    // builder.setVertexMain(`gl_Position = uProjection * vec4(aVertexPosition, 1.0);`);
     builder.setFragmentMain(`emit(vec4(uColor.rgb, 1.0));`);
   }
 
@@ -136,8 +145,12 @@ void emit(vec4 color) {
           chunk.vertexBuffer.bindToVertexAttrib(
               shader.attribute('aVertexPosition'),
               /*components=*/3);
+          chunk.normalBuffer.bindToVertexAttrib(
+            shader.attribute('aNormal'),
+            /*components=*/3);
           // gl.drawArrays(gl.POINTS, 0, chunk.numPoints);
-          gl.drawArrays(gl.LINES, 0, chunk.numPoints);
+
+          gl.drawArrays(gl.TRIANGLES, 0, chunk.numPoints);
         }
       }
     }
@@ -149,22 +162,27 @@ export class PointChunk extends SliceViewChunk {
   source: PointChunkSource;
   vertexPositions: Float32Array;
   vertexBuffer: Buffer;
+  vertexNormals: Float32Array;
+  normalBuffer: Buffer;
   numPoints: number;
 
   constructor(source: PointChunkSource, x: any) {
     super(source, x);
     this.vertexPositions = x['vertexPositions'];
+    this.vertexNormals = x['vertexNormals'];
     this.numPoints = Math.floor(this.vertexPositions.length / 3);
   }
 
   copyToGPU(gl: GL) {
     super.copyToGPU(gl);
     this.vertexBuffer = Buffer.fromData(gl, this.vertexPositions, gl.ARRAY_BUFFER, gl.STATIC_DRAW);
+    this.normalBuffer = Buffer.fromData(gl, this.vertexNormals, gl.ARRAY_BUFFER, gl.STATIC_DRAW);
   }
 
   freeGPUMemory(gl: GL) {
     super.freeGPUMemory(gl);
     this.vertexBuffer.dispose();
+    this.normalBuffer.dispose();
   }
 };
 

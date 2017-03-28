@@ -26,6 +26,11 @@ import {ShaderBuilder} from 'neuroglancer/webgl/shader';
 export const FRAGMENT_MAIN_START = '//NEUROGLANCER_POINT_RENDERLAYER_FRAGMENT_MAIN_START';
 
 const DEFAULT_FRAGMENT_MAIN = `void main() {
+  float distance = length(vNormal);
+  float feather = 0.3; 
+  if ( (distance > uLineWidth - feather) && (distance < uLineWidth + feather) ) {
+    emitRGBA(vec4(uColor, distance));
+  }
   emitRGB(uColor);
 }
 `;
@@ -79,6 +84,7 @@ void emitTransparent() {
     let shader = super.beginSlice(sliceView);
     let {gl} = this;
     gl.uniform1f(shader.uniform('uOpacity'), this.opacity.value);
+    gl.uniform1f(shader.uniform('uLineWidth'), 1.0);
     gl.uniform3fv(
         shader.uniform('uColor'), vec3.fromValues(1.0, 0.0, 0.5));  // TODO accept from user
     return shader;

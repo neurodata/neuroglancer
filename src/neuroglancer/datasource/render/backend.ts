@@ -121,13 +121,45 @@ function decodePointMatches(chunk: PointChunk, response: any, parameters: PointM
 
   return conversionObjectToWorld(conversionObjects, parameters, cancellationToken).then(
       allConvertedCoordinates => { 
-        let vertexPositions = new Float32ArrayBuilder();
+        let tmpVertexPositions = new Float32ArrayBuilder();
         for( let i=0 ; i<allConvertedCoordinates.length; i++ ) {
           let convertedCoordinate = verifyObject(allConvertedCoordinates[i]); 
           let point = verify3dVec(convertedCoordinate['world']);
-          vertexPositions.appendArray([point[0], point[1], point[2]])  
+          tmpVertexPositions.appendArray([point[0], point[1], point[2]])
+        }
+        let vertexPositions = new Float32ArrayBuilder();
+        let vertexNormals = new Float32ArrayBuilder();
+
+        for( let i=0 ; i<tmpVertexPositions.length ; i+=6 ) {
+          let pt1 = vec3.fromValues( tmpVertexPositions.view[i] , tmpVertexPositions.view[i + 1] , tmpVertexPositions.view[i + 2] );
+          let pt2 = vec3.fromValues( tmpVertexPositions.view[i + 3] , tmpVertexPositions.view[i + 4] , tmpVertexPositions.view[i + 5] );
+          let difference = vec3.create();
+          difference[0] = pt1[0] - pt2[0];
+          difference[1] = pt2[1] - pt1[1];
+
+          difference[0] /= (difference[0] + difference[1]) / 2.; 
+          difference[1] /= (difference[0] + difference[1]) / 2.; 
+          // vec3.subtract(difference, pt2, pt1);
+          
+          vertexPositions.appendArray([ pt1[0] , pt1[1] , pt1[2] ]);
+          vertexPositions.appendArray([ pt1[0] , pt1[1] , pt1[2] ]);
+          vertexPositions.appendArray([ pt2[0] , pt2[1] , pt2[2] ]);
+
+          vertexPositions.appendArray([ pt1[0] , pt1[1] , pt1[2] ]);
+          vertexPositions.appendArray([ pt2[0] , pt2[1] , pt2[2] ]);
+          vertexPositions.appendArray([ pt2[0] , pt2[1] , pt2[2] ]);
+
+          vertexNormals.appendArray([-difference[0], -difference[1], 0]);
+          vertexNormals.appendArray([difference[0], difference[1], 0]);
+          vertexNormals.appendArray([-difference[0], -difference[1], 0]);
+
+          vertexNormals.appendArray([difference[0], difference[1], 0]);
+          vertexNormals.appendArray([difference[0], difference[1], 0]);
+          vertexNormals.appendArray([-difference[0], -difference[1], 0]);
         }
         chunk.vertexPositions = vertexPositions.view;
+        chunk.vertexNormals = vertexNormals.view;
+        chunk.hasVertexNormals = true;
       }
     );
 }
