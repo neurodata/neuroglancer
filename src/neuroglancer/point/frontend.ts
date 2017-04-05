@@ -128,6 +128,14 @@ void emit(vec4 color) {
       let chunkLayout = source.spec.chunkLayout;
       let chunks = source.chunks;
 
+      // Compute object to data projection 
+      let objectToDataMatrix = this.tempMat;
+      mat4.identity(objectToDataMatrix);
+      if (source.pointVertexCoordinatesInVoxels) {
+        mat4.scale(objectToDataMatrix, objectToDataMatrix, this.voxelSize!);
+      }
+      // TODO: passd objectToDataMatrix as uModelView? 
+
       // Compute projection matrix that transforms vertex coordinates to device coordinates
       gl.uniformMatrix4fv(
           shader.uniform('uProjection'), false,
@@ -208,7 +216,7 @@ export abstract class PointChunkSource extends SliceViewChunkSource implements
    * nanometers.
    */
   get pointVertexCoordinatesInVoxels() {
-    return true;
+    return false;
   }
 };
 
