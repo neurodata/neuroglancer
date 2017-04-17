@@ -51,6 +51,7 @@ interface ChannelInfo {
   channelType: string;
   volumeType: VolumeType;
   dataType: DataType;
+  downsampled: boolean;
   description: string;
   key: string;
 }
@@ -150,12 +151,18 @@ function getVolumeTypeFromChannelType(channelType: string) {
 function parseChannelInfo(obj: any): ChannelInfo {
   verifyObject(obj);
   let channelType = verifyObjectProperty(obj, 'type', verifyString);
+  let downsampleStatus: boolean = false;
+  let downsampleStr = verifyObjectProperty(obj, 'downsample_status', verifyString);
+  if (downsampleStr === 'DOWNSAMPLED') {
+    downsampleStatus = true;
+  } 
 
   return {
     channelType,
     description: verifyObjectProperty(obj, 'description', verifyString),
     volumeType: getVolumeTypeFromChannelType(channelType),
     dataType: verifyObjectProperty(obj, 'datatype', x => verifyEnumString(x, DataType)),
+    downsampled: downsampleStatus,
     key: verifyObjectProperty(obj, 'name', verifyString),
   };
 }
@@ -257,7 +264,9 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     this.channel = channel;
     this.channelInfo = channelInfo;
     this.scales = experimentInfo.scales;
-    console.log(this.scales);
+    if (this.channelInfo.downsampled === false) {
+      this.scales = [experimentInfo.scales[0]]; 
+    }
     this.token = token;
     this.experiment = experimentInfo.key;
 
@@ -286,7 +295,6 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   }
 
   getSources(volumeSourceOptions: VolumeSourceOptions) {
-    console.log(this.scales);
     return this.scales.map(scaleInfo => {
       let {voxelOffset, voxelSize} = scaleInfo;
       let baseVoxelOffset = vec3.create();
@@ -370,7 +378,6 @@ export function getShardedVolume(chunkManager: ChunkManager, hostnames: string[]
     // Warning: If additional arguments are added, the cache key should be updated as well.
     return chunkManager.memoize.getUncounted(
         {'hostnames': hostnames, 'path': path},
-        // TODO: we might need a catch here?
         () => getExperimentInfo(chunkManager, hostnames, token, experiment, collection)
                   .then(
                       experimentInfo => getCoordinateFrame(
@@ -380,9 +387,7 @@ export function getShardedVolume(chunkManager: ChunkManager, hostnames: string[]
                                                 experimentInfo => new MultiscaleVolumeChunkSource(
                                                     chunkManager, hostnames, experimentInfo, token,
                                                     channel, parameters))));
-  })
- 
-  
+  });
 }
 
 const urlPattern = /^((?:http|https):\/\/[^\/?]+)\/(.*)$/;

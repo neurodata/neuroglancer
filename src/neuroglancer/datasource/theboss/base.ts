@@ -22,7 +22,6 @@ export class BossSourceParameters {
   experiment: string;
   channel: string;
   resolution: string;
-
   token: Token;
 }
 
