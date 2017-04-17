@@ -45,7 +45,7 @@ class VolumeChunkSource extends ParameterizedVolumeChunkSource<VolumeChunkSource
   download(chunk: VolumeChunk, cancellationToken: CancellationToken) {
     let {parameters} = this;
     let path = 
-      `/v0.8/cutout/${parameters.collection}/${parameters.experiment}/${parameters.channel}/${parameters.resolution}`;
+      `/latest/cutout/${parameters.collection}/${parameters.experiment}/${parameters.channel}/${parameters.resolution}`;
     {
       // chunkPosition must not be captured, since it will be invalidated by the next call to
       // computeChunkBounds.
@@ -59,7 +59,6 @@ class VolumeChunkSource extends ParameterizedVolumeChunkSource<VolumeChunkSource
 
     let acceptHeader = acceptHeaders.get(parameters.encoding)!; 
 
-    // path += `/neariso/`;
     return makeVolumeRequest(parameters.baseUrls, 'GET', path, parameters.token, acceptHeader, 'arraybuffer', cancellationToken)
       .then(response => this.chunkDecoder(chunk, response));
   }
@@ -77,7 +76,7 @@ class TileChunkSource extends ParameterizedVolumeChunkSource<TileChunkSourcePara
     chunk.chunkDataSize = this.spec.chunkDataSize;
 
     let path =
-        `/v0.8/tile/${parameters.collection}/${parameters.experiment}/${parameters.channel}/${parameters.orientation}/${parameters.tilesize}/${parameters.resolution}/${chunkGridPosition[0]}/${chunkGridPosition[1]}/${chunkGridPosition[2]}/`;
+        `/latest/tile/${parameters.collection}/${parameters.experiment}/${parameters.channel}/${parameters.orientation}/${parameters.tilesize}/${parameters.resolution}/${chunkGridPosition[0]}/${chunkGridPosition[1]}/${chunkGridPosition[2]}/`;
 
     return makeTileRequest(parameters.baseUrls, 'GET', path, parameters.token, 'arraybuffer', cancellationToken)
       .then(response => this.chunkDecoder(chunk, response));

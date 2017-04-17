@@ -16,7 +16,7 @@
 
 /**
  * @file
- * Support for NDstore (https://github.com/neurodata/ndstore) servers.
+ * Support for The Boss (https://github.com/jhuapl-boss) servers.
  */
 
 import {ChunkManager} from 'neuroglancer/chunk_manager/frontend';
@@ -37,12 +37,11 @@ import {Token} from 'neuroglancer/datasource/theboss/api';
 
 let serverVolumeTypes = new Map<string, VolumeType>();
 serverVolumeTypes.set('image', VolumeType.IMAGE);
-// serverVolumeTypes.set('annotation', VolumeType.IMAGE); // TODO: tmp treat annos as image tiles
 serverVolumeTypes.set('annotation', VolumeType.SEGMENTATION);
 
 const VALID_ENCODINGS = new Set<string>(['npz', 'jpeg']);  //, 'raw', 'jpeg']);
 
-const DEFAULT_CUBOID_SIZE = vec3.fromValues(512, 512, 16);
+const DEFAULT_CUBOID_SIZE = vec3.fromValues(256, 256, 16);
 
 const VolumeChunkSource = defineParameterizedVolumeChunkSource(VolumeChunkSourceParameters);
 const TileChunkSource = defineParameterizedVolumeChunkSource(TileChunkSourceParameters);
@@ -115,11 +114,9 @@ function parseScales(coordFrameObj: any, scalingLevels: number): ScaleInfo[] {
 
 function createScale(
     level: number, voxelSizeBase: vec3, voxelOffsetBase: vec3, imageSizeBase: vec3): ScaleInfo {
-  // scale x and y, but not z
-  // TODO: is neariso scaling z?
   let voxelSize = vec3.create();
   for (let i = 0; i < 2; i++) {
-    voxelSize[i] = voxelSizeBase[i] / Math.pow(2, level);
+    voxelSize[i] = voxelSizeBase[i] * Math.pow(2, level);
   }
   voxelSize[2] = voxelSizeBase[2];
 
@@ -206,14 +203,6 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   }
   get numChannels() {
     return 1;
-    /*
-    if (this.channelInfo.channelType === 'annotation') {
-      return 3; 
-    } 
-    else {
-      return 1;
-    }
-    */
   }
   get volumeType() {
     return this.channelInfo.volumeType;
@@ -268,6 +257,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     this.channel = channel;
     this.channelInfo = channelInfo;
     this.scales = experimentInfo.scales;
+    console.log(this.scales);
     this.token = token;
     this.experiment = experimentInfo.key;
 
@@ -296,47 +286,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   }
 
   getSources(volumeSourceOptions: VolumeSourceOptions) {
-    /*
-    let sources: VolumeChunkSource[][] = [];
-    for (let scaleInfo of this.scales) {
-      let alternatives = TILE_DIMS.map((dims, index) => {
-        let voxelSize = vec3.clone(this.voxelSize);
-        let chunkDataSize = vec3.fromValues(1, 1, 1);
-
-        // tiles are NxMx1
-        for (let i = 0; i < 2; ++i) {
-          chunkDataSize[dims[i]] = this.tileSize;
-        }
-
-        let lowerVoxelBound = vec3.create(), upperVoxelBound = vec3.create();
-        for (let i = 0; i < 3; ++i) {
-          lowerVoxelBound[i] = scaleInfo.voxelOffset[i];
-          upperVoxelBound[i] = scaleInfo.imageSize[i];
-        }
-
-        let spec = VolumeChunkSpecification.make({
-          voxelSize,
-          chunkDataSize,
-          numChannels: this.numChannels,
-          dataType: this.dataType, lowerVoxelBound, upperVoxelBound, volumeSourceOptions,
-        });
-        return TileChunkSource.get(this.chunkManager, spec, {
-          baseUrls: this.baseUrls,
-          collection: this.experimentInfo.collection,
-          experiment: this.experimentInfo.key,
-          channel: this.channel,
-          resolution: scaleInfo.key,
-          encoding: this.encoding,
-          token: this.token,
-          orientation: TILE_ORIENTATION[index],
-          tilesize: this.tileSize,
-        });
-      });
-      sources.push(alternatives);
-    }
-    return sources;
-    */
-    // 3D cutout code
+    console.log(this.scales);
     return this.scales.map(scaleInfo => {
       let {voxelOffset, voxelSize} = scaleInfo;
       let baseVoxelOffset = vec3.create();
@@ -382,7 +332,7 @@ export function getExperimentInfo(
   return chunkManager.memoize.getUncounted(
       {'hostnames': hostnames, 'experiment': experiment, 'collection': collection},
       () => makeRequest(
-                hostnames, 'GET', `/v0.8/collection/${collection}/experiment/${experiment}/`, token,
+                hostnames, 'GET', `/latest/collection/${collection}/experiment/${experiment}/`, token,
                 'json')
                 .then(
                     value => parseExperimentInfo(
@@ -402,7 +352,7 @@ export function getChannelInfo(
       },
       () => makeRequest(
                 hostnames, 'GET',
-                `/v0.8/collection/${collection}/experiment/${experiment}/channel/${channel}/`,
+                `/latest/collection/${collection}/experiment/${experiment}/channel/${channel}/`,
                 token, 'json')
                 .then(parseChannelInfo))
 }
@@ -448,7 +398,7 @@ export function getVolume(chunkManager: ChunkManager, path: string) {
 export function getCollections(chunkManager: ChunkManager, hostnames: string[], token: Token) {
   return chunkManager.memoize.getUncounted(
       hostnames,
-      () => makeRequest(hostnames, 'GET', '/v0.8/collection/', token, 'json')
+      () => makeRequest(hostnames, 'GET', '/latest/collection/', token, 'json')
                 .then(
                     value => verifyObjectProperty(
                         value, 'collections', x => parseArray(x, verifyString))));
@@ -459,7 +409,7 @@ export function getExperiments(
   return chunkManager.memoize.getUncounted(
       {'hostnames': hostnames, 'collection': collection},
       () =>
-          makeRequest(hostnames, 'GET', `/v0.8/collection/${collection}/experiment/`, token, 'json')
+          makeRequest(hostnames, 'GET', `/latest/collection/${collection}/experiment/`, token, 'json')
               .then(
                   value => verifyObjectProperty(
                     value, 'experiments', x => parseArray(x, verifyString))));
@@ -471,7 +421,7 @@ export function getCoordinateFrame(
   return chunkManager.memoize.getUncounted(
       {'hostnames': hostnames, 'coordinateframe': key},
       () =>
-          makeRequest(hostnames, 'GET', `/v0.8/coord/${key}/`, token, 'json')
+          makeRequest(hostnames, 'GET', `/latest/coord/${key}/`, token, 'json')
               .then(
                   coordinateFrameObj => parseCoordinateFrame(coordinateFrameObj, experimentInfo)));
 }
