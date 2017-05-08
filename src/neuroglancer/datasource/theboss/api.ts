@@ -29,11 +29,11 @@ export function makeRequest(
     responseType: 'json', cancellationToken?: CancellationToken): Promise<any>;
 export function makeRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: string, cancellationToken?: CancellationToken): any;
+    responseType: XMLHttpRequestResponseType, cancellationToken?: CancellationToken): any;
 
 export function makeRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: string, cancellationToken: CancellationToken = uncancelableToken): any {
+    responseType: XMLHttpRequestResponseType, cancellationToken: CancellationToken = uncancelableToken): any {
   /**
    * undefined means request not yet attempted.  null means request
    * cancelled.
@@ -86,17 +86,17 @@ export function makeRequest(
 
 export function makeVolumeRequest(
     baseUrls: string|string[], method: string, path: string, token: string, acceptHeader: string,
-    responseType: string, cancellationToken?: CancellationToken): Promise<ArrayBuffer>;
+    responseType: XMLHttpRequestResponseType, cancellationToken?: CancellationToken): Promise<ArrayBuffer>;
 export function makeVolumeRequest(
     baseUrls: string|string[], method: string, path: string, token: string, acceptHeader: string,
-    responseType: string, cancellationToken?: CancellationToken): Promise<any>;
+    responseType: XMLHttpRequestResponseType, cancellationToken?: CancellationToken): Promise<any>;
 export function makeVolumeRequest(
     baseUrls: string|string[], method: string, path: string, token: string, acceptHeader: string,
-    responseType: string, cancellationToken?: CancellationToken): any;
+    responseType: XMLHttpRequestResponseType, cancellationToken?: CancellationToken): any;
 
 export function makeVolumeRequest(
     baseUrls: string|string[], method: string, path: string, token: string, acceptHeader: string,
-    responseType: string, cancellationToken: CancellationToken = uncancelableToken): any {
+    responseType: XMLHttpRequestResponseType, cancellationToken: CancellationToken = uncancelableToken): any {
   /**
    * undefined means request not yet attempted.  null means request
    * cancelled.
@@ -151,17 +151,17 @@ export function makeVolumeRequest(
 
 export function makeTileRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: string, cancellationToken?: CancellationToken): Promise<ArrayBuffer>;
+    responseType: XMLHttpRequestResponseType, cancellationToken?: CancellationToken): Promise<ArrayBuffer>;
 export function makeTileRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: string, cancellationToken?: CancellationToken): Promise<any>;
+    responseType: XMLHttpRequestResponseType, cancellationToken?: CancellationToken): Promise<any>;
 export function makeTileRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: string, cancellationToken?: CancellationToken): any;
+    responseType: XMLHttpRequestResponseType, cancellationToken?: CancellationToken): any;
 
 export function makeTileRequest(
     baseUrls: string|string[], method: string, path: string, token: string,
-    responseType: string, cancellationToken: CancellationToken = uncancelableToken): any {
+    responseType: XMLHttpRequestResponseType, cancellationToken: CancellationToken = uncancelableToken): any {
   /**
    * undefined means request not yet attempted.  null means request
    * cancelled.
