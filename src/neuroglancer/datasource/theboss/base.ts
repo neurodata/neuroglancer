@@ -15,6 +15,7 @@
  */
 
 import {Token} from 'neuroglancer/datasource/theboss/api';
+import {vec2} from 'neuroglancer/util/geom';
 
 export class BossSourceParameters {
   baseUrls: string[];
@@ -27,23 +28,11 @@ export class BossSourceParameters {
 
 export class VolumeChunkSourceParameters extends BossSourceParameters {
   encoding: string;
+  window: vec2 | undefined;
 
   static RPC_ID = 'theboss/VolumeChunkSource';
 
   static stringify(parameters: VolumeChunkSourceParameters) {
-    return `theboss:volume:${parameters.baseUrls[0]}/${parameters.token}/${parameters.collection}/${parameters.experiment}/${parameters.channel}/${parameters.resolution}/${parameters.encoding}`;
-  }
-};
-
-export class TileChunkSourceParameters extends BossSourceParameters {
-  encoding: string;
-
-  orientation: string;
-  tilesize: number;
-
-  static RPC_ID = 'theboss/TileChunkSource';
-
-  static stringify(parameters: TileChunkSourceParameters) {
     return `theboss:volume:${parameters.baseUrls[0]}/${parameters.token}/${parameters.collection}/${parameters.experiment}/${parameters.channel}/${parameters.resolution}/${parameters.encoding}`;
   }
 };

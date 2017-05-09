@@ -15,9 +15,9 @@
  */
 
 import {registerChunkSource} from 'neuroglancer/chunk_manager/backend';
-import {makeRequest, makeTileRequest, makeVolumeRequest} from 'neuroglancer/datasource/theboss/api';
+import {makeRequest, makeVolumeRequest} from 'neuroglancer/datasource/theboss/api';
 import {Token} from 'neuroglancer/datasource/theboss/api';
-import {BossSourceParameters, TileChunkSourceParameters, VolumeChunkSourceParameters, MeshSourceParameters} from 'neuroglancer/datasource/theboss/base';
+import {BossSourceParameters, VolumeChunkSourceParameters, MeshSourceParameters} from 'neuroglancer/datasource/theboss/base';
 import {ParameterizedVolumeChunkSource, VolumeChunk} from 'neuroglancer/sliceview/backend';
 import {decodeJsonManifestChunk, decodeTriangleVertexPositionsAndIndices, FragmentChunk, ManifestChunk, ParameterizedMeshSource} from 'neuroglancer/mesh/backend';
 import {ChunkDecoder} from 'neuroglancer/sliceview/backend_chunk_decoders';
@@ -57,31 +57,16 @@ class VolumeChunkSource extends ParameterizedVolumeChunkSource<VolumeChunkSource
     }
     path += '/';
 
+    if (parameters.window !== undefined) {
+      path += `?window=${parameters.window[0]},${parameters.window[1]}`;
+    }
+
     let acceptHeader = acceptHeaders.get(parameters.encoding)!; 
 
     return makeVolumeRequest(parameters.baseUrls, 'GET', path, parameters.token, acceptHeader, 'arraybuffer', cancellationToken)
       .then(response => this.chunkDecoder(chunk, response));
   }
 };
-
-@registerChunkSource(TileChunkSourceParameters)
-class TileChunkSource extends ParameterizedVolumeChunkSource<TileChunkSourceParameters> {
-  chunkDecoder = chunkDecoders.get(this.parameters.encoding)!;
-
-  download(chunk: VolumeChunk, cancellationToken: CancellationToken) {
-    let {parameters} = this;
-    let {chunkGridPosition} = chunk;
-
-    // Needed by decoder.
-    chunk.chunkDataSize = this.spec.chunkDataSize;
-
-    let path =
-        `/latest/tile/${parameters.collection}/${parameters.experiment}/${parameters.channel}/${parameters.orientation}/${parameters.tilesize}/${parameters.resolution}/${chunkGridPosition[0]}/${chunkGridPosition[1]}/${chunkGridPosition[2]}/`;
-
-    return makeTileRequest(parameters.baseUrls, 'GET', path, parameters.token, 'arraybuffer', cancellationToken)
-      .then(response => this.chunkDecoder(chunk, response));
-  }
-}
 
 function decodeFragmentChunk(chunk: FragmentChunk, response: ArrayBuffer) {
   // response = inflate(new Uint8Array(response)).buffer;
