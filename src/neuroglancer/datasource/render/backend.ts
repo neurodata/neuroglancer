@@ -58,6 +58,10 @@ class TileChunkSource extends ParameterizedVolumeChunkSource<TileChunkSourcePara
     let path =
         `/render-ws/v1/owner/${parameters.owner}/project/${parameters.project}/stack/${parameters.stack}/z/${chunkPosition[2]}/box/${chunkPosition[0]},${chunkPosition[1]},${xTileSize},${yTileSize},${scale}/jpeg-image`;
 
+    if (parameters.window !== undefined) {
+      path += `?minIntensity=${parameters.window[0]}&maxIntensity=${parameters.window[1]}`;
+    }
+
     return sendHttpRequest(
                openShardedHttpRequest(parameters.baseUrls, path), 'arraybuffer', cancellationToken)
         .then(response => this.chunkDecoder(chunk, response));

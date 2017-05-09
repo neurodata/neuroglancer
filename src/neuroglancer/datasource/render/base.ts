@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import {vec2} from 'neuroglancer/util/geom';
+
 export class RenderSourceParameters {
   baseUrls: string[];
   owner: string;
@@ -25,7 +27,7 @@ export class RenderSourceParameters {
 export class TileChunkSourceParameters extends RenderSourceParameters {
   dims: string;
   level: number;
-  encoding: string;
+  window: vec2|undefined; 
 
   static RPC_ID = 'render/TileChunkSource';
 

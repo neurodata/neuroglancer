@@ -27,9 +27,9 @@ import {defineParameterizedVolumeChunkSource, MultiscaleVolumeChunkSource as Gen
 import {defineParameterizedPointSource, MultiscalePointChunkSource as GenericMultiscalePointChunkSource, PointChunkSource} from 'neuroglancer/point/frontend';
 import {PointChunkSpecification, PointSourceOptions} from 'neuroglancer/point/base';
 import {applyCompletionOffset, getPrefixMatchesWithDescriptions} from 'neuroglancer/util/completion';
-import {vec3} from 'neuroglancer/util/geom';
+import {vec3, vec2} from 'neuroglancer/util/geom';
 import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
-import {parseArray, parseQueryStringParameters, verifyFloat, verifyInt, verifyOptionalInt, verifyObject, verifyObjectProperty, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
+import {parseArray, parseQueryStringParameters, verifyFloat, verifyFiniteFloat, verifyInt, verifyOptionalInt, verifyObject, verifyObjectProperty, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
 
 const VALID_ENCODINGS = new Set<string>(['jpg']);
 
@@ -185,6 +185,8 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   encoding: string;
   numLevels: number|undefined;
 
+  window: vec2|undefined; 
+
   constructor(
       public chunkManager: ChunkManager, public baseUrls: string[], public ownerInfo: OwnerInfo,
       stack: string|undefined, public project: string, public parameters: {[index: string]: any}) {
@@ -231,6 +233,23 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     this.dims[0] = tileSize;
     this.dims[1] = tileSize;
     this.dims[2] = 1;
+
+    let maxIntensity = verifyOptionalInt(parameters['maxIntensity']);
+    let minIntensity = verifyOptionalInt(parameters['minIntensity']);
+
+    if (minIntensity === undefined && maxIntensity !== undefined) {
+      throw new Error(`Error: Must provide a max intensity bound if min intensity is provided.`);
+    }
+    let window = vec2.create();
+    if (minIntensity !== undefined) {
+      window[0] = verifyFiniteFloat(minIntensity);
+      this.window = window;
+    } 
+    if (maxIntensity !== undefined) {
+      window[1] = verifyFiniteFloat(maxIntensity);
+      this.window = window; 
+    }
+
   }
 
   getSources(volumeSourceOptions: VolumeSourceOptions) {
@@ -272,6 +291,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
         'project': this.stackInfo.project,
         'stack': this.stack,
         'encoding': this.encoding,
+        'window': this.window,
         'level': level,
         'dims': `${this.dims[0]}_${this.dims[1]}`,
       });
@@ -464,6 +484,8 @@ export class MultiscalePointChunkSource implements GenericMultiscalePointChunkSo
     }
 
     let chunkDataSize = vec3.clone(upperVoxelBound);
+    chunkDataSize[0] += Math.abs(lowerVoxelBound[0]);
+    chunkDataSize[1] += Math.abs(lowerVoxelBound[1]);
     chunkDataSize[2] = 1; 
 
     let spec = PointChunkSpecification.make({  
