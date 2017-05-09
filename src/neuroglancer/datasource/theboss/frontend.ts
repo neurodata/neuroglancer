@@ -22,7 +22,7 @@
 import {ChunkManager} from 'neuroglancer/chunk_manager/frontend';
 import {CompletionResult, registerDataSourceFactory} from 'neuroglancer/datasource/factory';
 import {makeRequest} from 'neuroglancer/datasource/theboss/api';
-import {BossSourceParameters, TileChunkSourceParameters, VolumeChunkSourceParameters, MeshSourceParameters} from 'neuroglancer/datasource/theboss/base';
+import {BossSourceParameters, VolumeChunkSourceParameters, MeshSourceParameters} from 'neuroglancer/datasource/theboss/base';
 import {DataType, VolumeChunkSpecification, VolumeSourceOptions, VolumeType} from 'neuroglancer/sliceview/base';
 import {defineParameterizedVolumeChunkSource, MultiscaleVolumeChunkSource as GenericMultiscaleVolumeChunkSource} from 'neuroglancer/sliceview/frontend';
 import {defineParameterizedMeshSource} from 'neuroglancer/mesh/frontend';
@@ -41,10 +41,9 @@ serverVolumeTypes.set('annotation', VolumeType.SEGMENTATION);
 
 const VALID_ENCODINGS = new Set<string>(['npz', 'jpeg']);  //, 'raw', 'jpeg']);
 
-const DEFAULT_CUBOID_SIZE = vec3.fromValues(256, 256, 16);
+const DEFAULT_CUBOID_SIZE = vec3.fromValues(1024, 1024, 16);
 
 const VolumeChunkSource = defineParameterizedVolumeChunkSource(VolumeChunkSourceParameters);
-const TileChunkSource = defineParameterizedVolumeChunkSource(TileChunkSourceParameters);
 const MeshSource = defineParameterizedMeshSource(MeshSourceParameters);
 
 interface ChannelInfo {
@@ -64,7 +63,6 @@ interface CoordinateFrameInfo {
 
 interface ScaleInfo {
   voxelSize: vec3;
-  voxelOffset: vec3;
   imageSize: vec3;
   key: string;
 }
@@ -73,6 +71,7 @@ interface ExperimentInfo {
   channels: Map<string, ChannelInfo>;
   scalingLevels: number;
   coordFrameKey: string;
+  coordFrame: CoordinateFrameInfo;
   scales: ScaleInfo[];
   key: string;
   collection: string;
@@ -85,10 +84,26 @@ interface ExperimentInfo {
 function parseCoordinateFrame(coordFrame: any, experimentInfo: ExperimentInfo): ExperimentInfo {
   verifyObject(coordFrame);
 
-  experimentInfo.scales = parseScales(coordFrame, experimentInfo.scalingLevels);
+  console.log(experimentInfo);
+
+  let voxelSizeBase = vec3.create(), voxelOffsetBase = vec3.create(), imageSizeBase = vec3.create();  
+  
+  voxelSizeBase[0] = verifyObjectProperty(coordFrame, 'x_voxel_size', verifyInt);
+  voxelSizeBase[1] = verifyObjectProperty(coordFrame, 'y_voxel_size', verifyInt);
+  voxelSizeBase[2] = verifyObjectProperty(coordFrame, 'z_voxel_size', verifyInt);
+
+  voxelOffsetBase[0] = verifyObjectProperty(coordFrame, 'x_start', verifyInt);
+  voxelOffsetBase[1] = verifyObjectProperty(coordFrame, 'y_start', verifyInt);
+  voxelOffsetBase[2] = verifyObjectProperty(coordFrame, 'z_start', verifyInt);
+
+  imageSizeBase[0] = verifyObjectProperty(coordFrame, 'x_stop', verifyInt);
+  imageSizeBase[1] = verifyObjectProperty(coordFrame, 'y_stop', verifyInt);
+  imageSizeBase[2] = verifyObjectProperty(coordFrame, 'z_stop', verifyInt);
+
+  experimentInfo.coordFrame = {voxelSizeBase, voxelOffsetBase, imageSizeBase};
   return experimentInfo;
 }
-
+/*
 function parseScales(coordFrameObj: any, scalingLevels: number): ScaleInfo[] {
   verifyObject(coordFrameObj);
 
@@ -139,7 +154,7 @@ function createScale(
     voxelSize, voxelOffset, imageSize, key
   }
 }
-
+*/
 function getVolumeTypeFromChannelType(channelType: string) {
   let volumeType = serverVolumeTypes.get(channelType);
   if (volumeType === undefined) {
@@ -180,32 +195,27 @@ function parseExperimentInfo(
   return Promise.all(channelPromiseArray)
     .then(channelArray => {
       let channels: Map<string, ChannelInfo> = new Map<string, ChannelInfo>();
-      channels.set
       channelArray.forEach(channel => {channels.set(channel.key, channel)});
-      return {
+      let firstChannel = channels.values().next().value;
+      
+      return getDownsampleInfo(chunkManager, hostnames, token, collection, experiment, firstChannel.key).then(downsampleInfo => { return {
         channels: channels,
             scalingLevels: verifyObjectProperty(obj, 'num_hierarchy_levels', verifyInt),
-            coordFrameKey: verifyObjectProperty(obj, 'coord_frame', verifyString), scales: scales,
+            coordFrameKey: verifyObjectProperty(obj, 'coord_frame', verifyString), scales: downsampleInfo,
             key: verifyObjectProperty(obj, 'name', verifyString),
             collection: verifyObjectProperty(obj, 'collection', verifyString),
-      }
+      }});
+
+      
     });
 }
 
-const TILE_DIMS = [
-  [0, 1],
-  [0, 2],
-  [1, 2],
-];
-
-const TILE_ORIENTATION = [
-  'xy',
-  'xz',
-  'yz',
-];
-
 export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunkSource {
   get dataType() {
+    if (this.channelInfo.dataType === DataType.UINT16) {
+      // 16-bit channels automatically rescaled to uint8 by The Boss
+      return DataType.UINT8;
+    }
     return this.channelInfo.dataType;
   }
   get numChannels() {
@@ -232,18 +242,9 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
 
   channelInfo: ChannelInfo;
   scales: ScaleInfo[];
+  coordinateFrame: CoordinateFrameInfo;
 
   encoding: string;
-
-  /**
-   * The base voxel size in nm
-   */
-  voxelSize: vec3;
-
-  /**
-   * cuboidSize
-   */
-  cuboidSize: vec3;
 
   constructor(
       public chunkManager: ChunkManager, public baseUrls: string[],
@@ -264,14 +265,14 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     this.channel = channel;
     this.channelInfo = channelInfo;
     this.scales = experimentInfo.scales;
+    this.coordinateFrame = experimentInfo.coordFrame;
     if (this.channelInfo.downsampled === false) {
       this.scales = [experimentInfo.scales[0]]; 
     }
     this.token = token;
     this.experiment = experimentInfo.key;
-
-    this.voxelSize = experimentInfo.scales[0].voxelSize;
   
+    /*
     this.cuboidSize = DEFAULT_CUBOID_SIZE;
     let cuboidXY = verifyOptionalString(parameters['xySize']);
     if (cuboidXY !== undefined) {
@@ -281,11 +282,11 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     if (cuboidZ !== undefined) {
       this.cuboidSize[2] = verifyInt(cuboidZ);
     }
-
+    */
     let encoding = verifyOptionalString(parameters['encoding']);
     if (encoding === undefined) {
       encoding = this.volumeType === VolumeType.IMAGE ? 'jpeg' : 'npz';
-      // encoding = 'npz';
+      console.log(encoding);
     } else {
       if (!VALID_ENCODINGS.has(encoding)) {
         throw new Error(`Invalid encoding: ${JSON.stringify(encoding)}.`);
@@ -295,8 +296,10 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   }
 
   getSources(volumeSourceOptions: VolumeSourceOptions) {
+    console.log(this.scales);
     return this.scales.map(scaleInfo => {
-      let {voxelOffset, voxelSize} = scaleInfo;
+      let {voxelSize, imageSize} = scaleInfo;
+      let voxelOffset = this.coordinateFrame.voxelOffsetBase;
       let baseVoxelOffset = vec3.create();
       for (let i = 0; i < 3; ++i) {
         baseVoxelOffset[i] = Math.ceil(voxelOffset[i]);
@@ -306,11 +309,10 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
             numChannels: this.numChannels,
             volumeType: this.volumeType,
             dataType: this.dataType, voxelSize,
-            chunkDataSizes: [this.cuboidSize],
             transform: mat4.fromTranslation(
                 mat4.create(), vec3.multiply(vec3.create(), voxelOffset, voxelSize)),
             baseVoxelOffset,
-            upperVoxelBound: scaleInfo.imageSize, volumeSourceOptions,
+            upperVoxelBound: imageSize, volumeSourceOptions,
           })
           .map(spec => VolumeChunkSource.get(this.chunkManager, spec, {
             baseUrls: this.baseUrls,
@@ -363,6 +365,43 @@ export function getChannelInfo(
                 `/latest/collection/${collection}/experiment/${experiment}/channel/${channel}/`,
                 token, 'json')
                 .then(parseChannelInfo))
+}
+
+export function getDownsampleInfo(chunkManager: ChunkManager, hostnames: string[], token: Token, collection: string, experiment: string, channel: string): Promise<any> {
+  return chunkManager.memoize.getUncounted({
+    'hostnames': hostnames,
+    'token': token,
+    'collection': collection,
+    'experiment': experiment,
+    'channel': channel,
+    'downsample': true
+  },
+  () => makeRequest(
+    hostnames, 'GET', 
+    `/latest/downsample/${collection}/${experiment}/${channel}/`, token, 'json')
+  ).then(parseDownsampleInfo);
+}
+
+export function parseDownsampleInfo(downsampleObj: any): ScaleInfo[] {
+  verifyObject(downsampleObj);
+  console.log(downsampleObj);
+  let voxelSizes = verifyObjectProperty(downsampleObj, 'voxel_size', x => verifyObjectAsMap(x, verify3dScale));
+  let imageSizes = verifyObjectProperty(downsampleObj, 'extent', x => verifyObjectAsMap(x, verify3dDimensions));
+
+  let num_hierarchy_levels = verifyObjectProperty(downsampleObj, 'num_hierarchy_levels', verifyInt);  
+
+  let scaleInfo = new Array<ScaleInfo>();
+  for(let i=0 ; i<num_hierarchy_levels ; i++) {
+    let key: string = String(i);
+    const voxelSize = voxelSizes.get(key);
+    const imageSize = imageSizes.get(key);
+    if (voxelSize === undefined || imageSize === undefined) {
+      throw new Error(
+          `Missing voxel_size/extent for resolution ${key}.`);
+    }
+    scaleInfo[i] = {voxelSize, imageSize, key};
+  }
+  return scaleInfo;
 }
 
 export function getShardedVolume(chunkManager: ChunkManager, hostnames: string[], path: string) {
