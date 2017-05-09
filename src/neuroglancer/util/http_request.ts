@@ -99,9 +99,9 @@ export function sendHttpRequest(xhr: XMLHttpRequest, responseType: XMLHttpReques
 
 export function sendHttpJsonPostRequest(xhr: XMLHttpRequest, payload: any, responseType: 'arraybuffer', token?: CancellationToken): Promise<ArrayBuffer>;
 export function sendHttpJsonPostRequest(xhr: XMLHttpRequest, payload: any, responseType: 'json', token?: CancellationToken): Promise<any>;
-export function sendHttpJsonPostRequest(xhr: XMLHttpRequest, payload: any, responseType: string, token?: CancellationToken): any;
+export function sendHttpJsonPostRequest(xhr: XMLHttpRequest, payload: any, responseType: XMLHttpRequestResponseType, token?: CancellationToken): any;
 
-export function sendHttpJsonPostRequest(xhr: XMLHttpRequest, payload: any, responseType: string, token: CancellationToken = uncancelableToken) {
+export function sendHttpJsonPostRequest(xhr: XMLHttpRequest, payload: any, responseType: XMLHttpRequestResponseType, token: CancellationToken = uncancelableToken) {
   xhr.responseType = responseType;
   xhr.setRequestHeader('Content-Type', `application/json`);
   return new Promise((resolve, reject) => {
