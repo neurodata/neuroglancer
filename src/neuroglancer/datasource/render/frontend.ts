@@ -185,7 +185,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   encoding: string;
   numLevels: number|undefined;
 
-  window: vec2|undefined; 
+  window: vec2|undefined = undefined; 
 
   constructor(
       public chunkManager: ChunkManager, public baseUrls: string[], public ownerInfo: OwnerInfo,
@@ -237,7 +237,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     let maxIntensity = verifyOptionalInt(parameters['maxIntensity']);
     let minIntensity = verifyOptionalInt(parameters['minIntensity']);
 
-    if (minIntensity === undefined && maxIntensity !== undefined) {
+    if (minIntensity !== undefined && maxIntensity === undefined) {
       throw new Error(`Error: Must provide a max intensity bound if min intensity is provided.`);
     }
     let window = vec2.create();
