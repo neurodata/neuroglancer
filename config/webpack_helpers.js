@@ -57,6 +57,7 @@ const minifyBabelPlugins = exports.minifyBabelPlugins = [
 
 const DEFAULT_DATA_SOURCES = exports.DEFAULT_DATA_SOURCES = [
   'neuroglancer/datasource/brainmaps',
+  'neuroglancer/datasource/boss',
   'neuroglancer/datasource/ndstore',
   'neuroglancer/datasource/dvid',
   'neuroglancer/datasource/render',
