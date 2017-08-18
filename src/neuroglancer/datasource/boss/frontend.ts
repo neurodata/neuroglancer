@@ -56,6 +56,14 @@ interface CoordinateFrameInfo {
   voxelSizeBase: vec3;
   voxelOffsetBase: vec3;
   imageSizeBase: vec3;
+  voxelUnit: VoxelUnitType;
+}
+
+enum VoxelUnitType {
+  NANOMETERS = 0,
+  MICROMETERS = 1,
+  MILLIMETERS = 2,
+  CENTIMERES = 3
 }
 
 interface ScaleInfo {
@@ -94,8 +102,10 @@ function parseCoordinateFrame(coordFrame: any, experimentInfo: ExperimentInfo): 
   imageSizeBase[0] = verifyObjectProperty(coordFrame, 'x_stop', verifyInt);
   imageSizeBase[1] = verifyObjectProperty(coordFrame, 'y_stop', verifyInt);
   imageSizeBase[2] = verifyObjectProperty(coordFrame, 'z_stop', verifyInt);
+  
+  let voxelUnit = verifyObjectProperty(coordFrame, 'voxel_unit', x => verifyEnumString(x, VoxelUnitType));
 
-  experimentInfo.coordFrame = {voxelSizeBase, voxelOffsetBase, imageSizeBase};
+  experimentInfo.coordFrame = {voxelSizeBase, voxelOffsetBase, imageSizeBase, voxelUnit};
   return experimentInfo;
 }
 
@@ -209,12 +219,29 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     }
     this.channel = channel;
     this.channelInfo = channelInfo;
-    this.scales = experimentInfo.scales;
+    
     if (experimentInfo.coordFrame === undefined) {
       throw new Error(
         `Specified experiment ${JSON.stringify(experimentInfo.key)} does not have a valid coordinate frame`);
     }
     this.coordinateFrame = experimentInfo.coordFrame;
+
+    // Use the coordinate frame to convert the scale voxel size to nm
+    this.scales = new Array<ScaleInfo>();
+    experimentInfo.scales.forEach(scale => {
+      switch (this.coordinateFrame.voxelUnit) {
+          case VoxelUnitType.MICROMETERS: {
+            for(let i=0; i<3; i++) scale.voxelSize[i] *= 10.e3;
+          } break;
+          case VoxelUnitType.MILLIMETERS: {
+            for(let i=0; i<3; i++) scale.voxelSize[i] *= 10.e6;
+          } break;
+          case VoxelUnitType.CENTIMERES: {
+            for(let i=0; i<3; i++) scale.voxelSize[i] *= 10.e7;
+          } break;
+      }
+      this.scales.push(scale);
+    });
     if (this.channelInfo.downsampled === false) {
       this.scales = [experimentInfo.scales[0]]; 
     }
