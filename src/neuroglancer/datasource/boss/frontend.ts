@@ -68,7 +68,7 @@ interface ExperimentInfo {
   channels: Map<string, ChannelInfo>;
   scalingLevels: number;
   coordFrameKey: string;
-  coordFrame: CoordinateFrameInfo;
+  coordFrame?: CoordinateFrameInfo;
   scales: ScaleInfo[];
   key: string;
   collection: string;
@@ -144,7 +144,9 @@ function parseExperimentInfo(
       return getDownsampleInfo(chunkManager, hostnames, authServer, collection, experiment, firstChannel.key).then(downsampleInfo => { return {
         channels: channels,
             scalingLevels: verifyObjectProperty(obj, 'num_hierarchy_levels', verifyInt),
-            coordFrameKey: verifyObjectProperty(obj, 'coord_frame', verifyString), scales: downsampleInfo,
+            coordFrameKey: verifyObjectProperty(obj, 'coord_frame', verifyString),
+            coordFrame: undefined,
+            scales: downsampleInfo,
             key: verifyObjectProperty(obj, 'name', verifyString),
             collection: verifyObjectProperty(obj, 'collection', verifyString),
       }});
@@ -208,6 +210,10 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     this.channel = channel;
     this.channelInfo = channelInfo;
     this.scales = experimentInfo.scales;
+    if (experimentInfo.coordFrame === undefined) {
+      throw new Error(
+        `Specified experiment ${JSON.stringify(experimentInfo.key)} does not have a valid coordinate frame`);
+    }
     this.coordinateFrame = experimentInfo.coordFrame;
     if (this.channelInfo.downsampled === false) {
       this.scales = [experimentInfo.scales[0]]; 
