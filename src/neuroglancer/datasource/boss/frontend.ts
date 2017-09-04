@@ -231,13 +231,13 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     experimentInfo.scales.forEach(scale => {
       switch (this.coordinateFrame.voxelUnit) {
           case VoxelUnitType.MICROMETERS: {
-            for(let i=0; i<3; i++) scale.voxelSize[i] *= 10.e3;
+            for(let i=0; i<3; i++) scale.voxelSize[i] *= 1.e3;
           } break;
           case VoxelUnitType.MILLIMETERS: {
-            for(let i=0; i<3; i++) scale.voxelSize[i] *= 10.e6;
+            for(let i=0; i<3; i++) scale.voxelSize[i] *= 1.e6;
           } break;
           case VoxelUnitType.CENTIMERES: {
-            for(let i=0; i<3; i++) scale.voxelSize[i] *= 10.e7;
+            for(let i=0; i<3; i++) scale.voxelSize[i] *= 1.e7;
           } break;
       }
       this.scales.push(scale);
