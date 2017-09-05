@@ -350,7 +350,11 @@ export function getExperimentInfo(
     chunkManager: ChunkManager, hostnames: string[], authServer: string, experiment: string,
     collection: string): Promise<ExperimentInfo> {
   return chunkManager.memoize.getUncounted(
-      {'hostnames': hostnames, 'experiment': experiment, 'collection': collection},
+      {
+        'hostnames': hostnames, 
+        'collection': collection,
+        'experiment': experiment
+      },
       () => makeRequest(
                 hostnames, authServer, {method: 'GET', path: `/latest/collection/${collection}/experiment/${experiment}/`, responseType: 'json'})
                 .then(
@@ -364,7 +368,7 @@ export function getChannelInfo(
   return chunkManager.memoize.getUncounted(
       {
         'hostnames': hostnames,
-        'collection': collection,
+        'collection': collection,        
         'experiment': experiment,
         'channel': channel
       },
@@ -378,7 +382,7 @@ export function getDownsampleInfo(chunkManager: ChunkManager, hostnames: string[
   return chunkManager.memoize.getUncounted({
     'hostnames': hostnames,
     'collection': collection,
-    'experiment': experiment,
+    'experiment': experiment,    
     'channel': channel,
     'downsample': true
   },
