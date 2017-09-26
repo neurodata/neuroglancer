@@ -15,7 +15,9 @@
  */
 
 import {VolumeChunk} from 'neuroglancer/sliceview/volume/backend';
+import {maybeDecompressGzip} from 'neuroglancer/util/gzip'
 
 export function decodeCompressedSegmentationChunk(chunk: VolumeChunk, response: ArrayBuffer) {
-  chunk.data = new Uint32Array(response);
+  let byteView = maybeDecompressGzip(response);
+  chunk.data = new Uint32Array(byteView.buffer, byteView.byteOffset, byteView.byteLength / 4);
 }
