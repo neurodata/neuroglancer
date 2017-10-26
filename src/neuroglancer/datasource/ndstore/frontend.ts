@@ -257,7 +257,7 @@ export function getVolume(chunkManager: ChunkManager, path: string) {
 export function getPublicTokens(
     chunkManager: ChunkManager, hostnames: string[], urlprefix: string) {
   return chunkManager.memoize.getUncounted(
-      {type: 'dvid:getPublicTokens', hostnames},
+      {type: 'ndstore:getPublicTokens', hostnames},
       () =>
           sendHttpRequest(openShardedHttpRequest(hostnames, `${urlprefix}/public_tokens/`), 'json')
               .then(value => parseArray(value, verifyString)));
