@@ -39,21 +39,24 @@ const UNIFORM_WIDGET_JSON_KEY = 'uniforms';
 
 enum ShaderUniformTypes {
   Float
-};
+}
 
 interface ShaderUniformSpecification {
   name: string;
   type: ShaderUniformTypes;
   value: any;
-};
+}
 
 type ShaderUniformMap = Map<string, TrackableValue<number>>;
 
-// TODO(adb): can we template this based on the type enum? 
-class ShaderUniformWidget implements ShaderUniformSpecification {
-  trackableValue: TrackableValue<T>; 
+// TODO(adb): can we template this based on the type enum?
+export class ShaderUniformWidget<T> implements ShaderUniformSpecification {
+  name: string;
+  type: ShaderUniformTypes;
+  value: any;
 
-  constructor(name, type, initialValue) {
+  trackableValue: TrackableValue<T>;
+  constructor(_name: string, _type: ShaderUniformTypes, _initialValue: any) {
 
   }
 }
@@ -62,9 +65,9 @@ class ShaderUniformWidgets {
   uniforms: ShaderUniformMap = new Map<string, TrackableValue<number>>();
 
   constructor() {
-    this.uniforms.set("test", new TrackableValue<number>(0.5, verifyFloat));
+    this.uniforms.set('test', new TrackableValue<number>(0.5, verifyFloat));
     console.log('getting test');
-    let t = this.uniforms.get("test")!;
+    let t = this.uniforms.get('test')!;
     console.log(t);
     t.value = 0.1;
   }
@@ -81,7 +84,7 @@ class ShaderUniformWidgets {
     let values: any = [];
     this.uniforms.forEach((value, name) => {
       console.log(name);
-      values.push({ "name": name, "type": "float", "value": value.toJSON() });
+      values.push({ 'name': name, 'type': 'float', 'value': value.toJSON() });
     });
     console.log(values);
     return values;
