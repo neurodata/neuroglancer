@@ -26,6 +26,8 @@ import {makeWatchableShaderError} from 'neuroglancer/webgl/dynamic_shader';
 import {RangeWidget} from 'neuroglancer/widget/range';
 import {ShaderCodeWidget} from 'neuroglancer/widget/shader_code_widget';
 import {Tab} from 'neuroglancer/widget/tab_view';
+import {TrackableValue} from 'neuroglancer/trackable_value';
+import { verifyFloat, parseArray } from 'neuroglancer/util/json';
 
 require('./image_user_layer.css');
 require('neuroglancer/maximize_button.css');
@@ -33,6 +35,59 @@ require('neuroglancer/maximize_button.css');
 const OPACITY_JSON_KEY = 'opacity';
 const BLEND_JSON_KEY = 'blend';
 const SHADER_JSON_KEY = 'shader';
+const UNIFORM_WIDGET_JSON_KEY = 'uniforms';
+
+enum ShaderUniformTypes {
+  Float
+};
+
+interface ShaderUniformSpecification {
+  name: string;
+  type: ShaderUniformTypes;
+  value: any;
+};
+
+type ShaderUniformMap = Map<string, TrackableValue<number>>;
+
+// TODO(adb): can we template this based on the type enum? 
+class ShaderUniformWidget implements ShaderUniformSpecification {
+  trackableValue: TrackableValue<T>; 
+
+  constructor(name, type, initialValue) {
+
+  }
+}
+
+class ShaderUniformWidgets {
+  uniforms: ShaderUniformMap = new Map<string, TrackableValue<number>>();
+
+  constructor() {
+    this.uniforms.set("test", new TrackableValue<number>(0.5, verifyFloat));
+    console.log('getting test');
+    let t = this.uniforms.get("test")!;
+    console.log(t);
+    t.value = 0.1;
+  }
+
+  restoreState(specification: any) {
+    if (specification) {
+      parseArray(specification, (x) => {
+        console.log(x);
+      });
+    }
+  }
+
+  toJSON() {
+    let values: any = [];
+    this.uniforms.forEach((value, name) => {
+      console.log(name);
+      values.push({ "name": name, "type": "float", "value": value.toJSON() });
+    });
+    console.log(values);
+    return values;
+  }
+
+}
 
 const Base = UserLayerWithVolumeSourceMixin(UserLayer);
 export class ImageUserLayer extends Base {
@@ -40,9 +95,13 @@ export class ImageUserLayer extends Base {
   blendMode = trackableBlendModeValue();
   fragmentMain = getTrackableFragmentMain();
   shaderError = makeWatchableShaderError();
+  shaderUniformWidgets: ShaderUniformWidgets = new ShaderUniformWidgets();
   renderLayer: ImageRenderLayer;
   constructor(manager: LayerListSpecification, x: any) {
     super(manager, x);
+
+    console.log(this.shaderUniformWidgets);
+
     this.registerDisposer(this.fragmentMain.changed.add(this.specificationChanged.dispatch));
     this.tabs.add(
         'rendering',
@@ -55,6 +114,7 @@ export class ImageUserLayer extends Base {
     this.opacity.restoreState(specification[OPACITY_JSON_KEY]);
     this.blendMode.restoreState(specification[BLEND_JSON_KEY]);
     this.fragmentMain.restoreState(specification[SHADER_JSON_KEY]);
+    this.shaderUniformWidgets.restoreState(specification[UNIFORM_WIDGET_JSON_KEY]);
     const {multiscaleSource} = this;
     if (multiscaleSource === undefined) {
       throw new Error(`source property must be specified`);
@@ -80,6 +140,7 @@ export class ImageUserLayer extends Base {
     x[OPACITY_JSON_KEY] = this.opacity.toJSON();
     x[BLEND_JSON_KEY] = this.blendMode.toJSON();
     x[SHADER_JSON_KEY] = this.fragmentMain.toJSON();
+    x[UNIFORM_WIDGET_JSON_KEY] = this.shaderUniformWidgets.toJSON();
     return x;
   }
 }
@@ -132,6 +193,11 @@ class RenderingOptionsTab extends Tab {
 
     element.appendChild(topRow);
     element.appendChild(this.codeWidget.element);
+    
+    // TODO(adb): expose adding of shader widgets with UI controls
+    let testWidget = document.createElement('div');
+    testWidget.textContent = 'Shader Widget';
+    element.appendChild(testWidget);
     this.codeWidget.textEditor.refresh();
     this.visibility.changed.add(() => {
       if (this.visible) {
