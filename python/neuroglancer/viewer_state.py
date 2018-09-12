@@ -186,6 +186,7 @@ class ImageLayer(Layer, _AnnotationLayerOptions):
     shader = wrapped_property('shader', text_type)
     opacity = wrapped_property('opacity', optional(float, 0.5))
     blend = wrapped_property('blend', optional(str))
+    color = wrapped_property('color', optional(str))
 
     @staticmethod
     def interpolate(a, b, t):
@@ -394,7 +395,6 @@ class ManagedLayer(JsonObjectWrapper):
         super(ManagedLayer, self).__init__(json_data, _readonly=_readonly, **kwargs)
 
     visible = wrapped_property('visible', optional(bool))
-    color = wrapped_property('color', optional(str))
 
     def __getattr__(self, key):
         return getattr(self.layer, key)
@@ -402,7 +402,7 @@ class ManagedLayer(JsonObjectWrapper):
     def __setattr__(self, key, value):
         if self._readonly:
             raise AttributeError
-        if key in ['name', 'visible', 'layer', 'color']:
+        if key in ['name', 'visible', 'layer']:
             object.__setattr__(self, key, value)
         else:
             return setattr(self.layer, key, value)
@@ -416,9 +416,6 @@ class ManagedLayer(JsonObjectWrapper):
         visible = self.visible
         if visible is not None:
             r['visible'] = visible
-        color = self.color
-        if color is not None:
-            r['color'] = color
         return r
 
     def __deepcopy__(self, memo):
