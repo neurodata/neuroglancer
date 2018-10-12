@@ -327,7 +327,6 @@ export class Viewer extends RefCounted implements ViewerState {
         'systemMemoryLimit', this.dataContext.chunkQueueManager.capacities.systemMemory.sizeLimit);
     state.add(
         'concurrentDownloads', this.dataContext.chunkQueueManager.capacities.download.itemLimit);
-    state.add('stateServer', this.stateServer);
     state.add('jsonStateServer', this.jsonStateServer);
     state.add('selectedLayer', this.selectedLayer);
     state.add('crossSectionBackgroundColor', this.crossSectionBackgroundColor);
@@ -609,7 +608,7 @@ export class Viewer extends RefCounted implements ViewerState {
   }
 
   promptJsonStateServer(message: string): void {
-    let json_server_input = prompt(message, 'https://www.dynamicannotationframework.com/nglstate/post');
+    let json_server_input = prompt(message, 'https://api.myjson.com/bins');
     if (json_server_input !== null) {
       this.jsonStateServer.value = json_server_input;
     } else {
