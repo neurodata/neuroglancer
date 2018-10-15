@@ -208,7 +208,6 @@ export class Viewer extends RefCounted implements ViewerState {
   layerSpecification: TopLevelLayerListSpecification;
   layout: RootLayoutContainer;
 
-  stateServer = new TrackableValue<string>('', validateStateServer);
   jsonStateServer = new TrackableValue<string>('', validateStateServer)
   state = new CompoundTrackable();
 
