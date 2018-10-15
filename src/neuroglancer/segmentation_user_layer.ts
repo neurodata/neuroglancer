@@ -43,6 +43,8 @@ import {SegmentSetWidget} from 'neuroglancer/widget/segment_set_widget';
 import {ShaderCodeWidget} from 'neuroglancer/widget/shader_code_widget';
 import {Tab} from 'neuroglancer/widget/tab_view';
 import {Uint64EntryWidget} from 'neuroglancer/widget/uint64_entry_widget';
+import {PickState} from 'neuroglancer/layer';
+import {AraAtlas} from 'neuroglancer/ui/ara_atlas';
 
 require('neuroglancer/noselect.css');
 require('./segmentation_user_layer.css');
@@ -64,6 +66,12 @@ const COLOR_SEED_JSON_KEY = 'colorSeed';
 
 const Base = UserLayerWithVolumeSourceMixin(UserLayer);
 export class SegmentationUserLayer extends Base {
+
+  /**
+   * Atlas to use for id lookup.
+  */
+  atlas: AraAtlas|null|undefined = null;
+
   displayState: SliceViewSegmentationDisplayState&SegmentationDisplayState3D&
       SkeletonLayerDisplayState = {
         segmentColorHash: SegmentColorHash.getDefault(),
@@ -96,6 +104,9 @@ export class SegmentationUserLayer extends Base {
 
   constructor(public manager: LayerListSpecification, x: any) {
     super(manager, x);
+    
+    this.atlas = new AraAtlas();
+
     this.displayState.visibleSegments.changed.add(this.specificationChanged.dispatch);
     this.displayState.segmentEquivalences.changed.add(this.specificationChanged.dispatch);
     this.displayState.segmentSelectionState.bindTo(manager.layerSelectedValues, this);
@@ -109,6 +120,25 @@ export class SegmentationUserLayer extends Base {
         'rendering', {label: 'Rendering', order: -100, getter: () => new DisplayOptionsTab(this)});
     this.tabs.default = 'rendering';
   }
+
+  
+
+  /* Kludge to catch changes to the voxel state (e.g., mouse movement).
+    A better solution would tap directly into LayerSelectedValues.values and update on render only.
+  */
+   ontfield: HTMLElement | null = document.getElementById('onttext');
+   oldvalue: any|null|undefined;
+   getValueAt(position: Float32Array, pickState: PickState) {
+     let newvalue = super.getValueAt(position, pickState);
+     if (newvalue !== null && (+newvalue !== +this.oldvalue)) {
+       console.log('I got a new value! ' + newvalue + ' vs ' + this.oldvalue);
+       if (! (typeof this.atlas === 'undefined' || this.atlas === null) && (this.ontfield != null)) {
+                 this.ontfield.innerHTML = '' + this.atlas.getNameForId(+newvalue.toString());
+       }
+     }
+     this.oldvalue = newvalue;
+     return newvalue;
+   }
 
   get volumeOptions() {
     return {volumeType: VolumeType.SEGMENTATION};
