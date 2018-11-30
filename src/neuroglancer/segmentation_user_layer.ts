@@ -132,13 +132,13 @@ export class SegmentationUserLayer extends Base {
    oldvalue: any|null|undefined;
    getValueAt(position: Float32Array, pickState: PickState) {
      let newvalue = super.getValueAt(position, pickState);
-     if (newvalue !== null && (+newvalue !== +this.oldvalue)) {
-       console.log('I got a new value! ' + newvalue + ' vs ' + this.oldvalue);
+     if (newvalue !== null && (+newvalue !== this.oldvalue) && newvalue !== undefined) {
+      //  console.log('I got a new value! ' + newvalue + ' vs ' + this.oldvalue);
        if (! (typeof this.atlas === 'undefined' || this.atlas === null) && (this.ontfield != null)) {
                  this.ontfield.innerHTML = '' + this.atlas.getNameForId(+newvalue.toString());
        }
      }
-     this.oldvalue = newvalue;
+     this.oldvalue = +newvalue;
      return newvalue;
    }
 
