@@ -145,7 +145,7 @@ export interface ViewerOptions extends ViewerUIOptions, VisibilityPrioritySpecif
 }
 
 const defaultViewerOptions = {
-  showLayerDialog: true,
+  showLayerDialog: false,
   resetStateWhenEmpty: true,
 };
 
