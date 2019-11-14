@@ -26,8 +26,24 @@ import {glsl_COLORMAPS} from 'neuroglancer/webgl/colormaps';
 
 export const FRAGMENT_MAIN_START = '//NEUROGLANCER_IMAGE_RENDERLAYER_FRAGMENT_MAIN_START';
 
-const DEFAULT_FRAGMENT_MAIN = `void main() {
-  emitGrayscale(toNormalized(getDataValue()));
+const DEFAULT_FRAGMENT_MAIN = `#uicontrol vec3 color color(default="white")
+#uicontrol float min slider(default=0, min=0, max=1, step=0.01)
+#uicontrol float max slider(default=1, min=0, max=1, step=0.01)
+#uicontrol float brightness slider(default=0, min=-1, max=1, step=0.1)
+#uicontrol float contrast slider(default=0, min=-3, max=3, step=0.1)
+
+float scale(float x) {
+  return (x - min) / (max - min);
+}
+
+void main() {
+  emitRGB(
+    color * vec3(
+      scale(toNormalized(getDataValue()))+brightness,
+      scale(toNormalized(getDataValue()))+brightness,
+      scale(toNormalized(getDataValue()))+brightness
+    )*exp(contrast)
+  );
 }
 `;
 

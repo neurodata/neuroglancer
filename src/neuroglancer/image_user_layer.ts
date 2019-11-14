@@ -39,6 +39,10 @@ const BLEND_JSON_KEY = 'blend';
 const SHADER_JSON_KEY = 'shader';
 const SHADER_CONTROLS_JSON_KEY = 'shaderControls';
 
+const MIN_JSON_KEY = "min";
+const MAX_JSON_KEY = "max";
+const COLOR_JSON_KEY = "color";
+
 const Base = UserLayerWithVolumeSourceMixin(UserLayer);
 export class ImageUserLayer extends Base {
   opacity = trackableAlphaValue(0.5);
@@ -66,7 +70,24 @@ export class ImageUserLayer extends Base {
       this.blendMode.restoreState(blendValue);
     }
     this.fragmentMain.restoreState(specification[SHADER_JSON_KEY]);
-    this.shaderControlState.restoreState(specification[SHADER_CONTROLS_JSON_KEY]);
+
+    let shader_controls = {} as any;
+    if (SHADER_CONTROLS_JSON_KEY in specification){
+      shader_controls = specification[SHADER_CONTROLS_JSON_KEY];
+    }
+
+    // old neurodata viz links
+    if (MIN_JSON_KEY in specification){
+      shader_controls[MIN_JSON_KEY] = specification[MIN_JSON_KEY];
+    }
+    if (MAX_JSON_KEY in specification){
+      shader_controls[MAX_JSON_KEY] = specification[MAX_JSON_KEY];
+    }
+    if (COLOR_JSON_KEY in specification){
+      shader_controls[COLOR_JSON_KEY] = specification[COLOR_JSON_KEY];
+    }
+
+    this.shaderControlState.restoreState(shader_controls);
     const {multiscaleSource} = this;
     if (multiscaleSource === undefined) {
       throw new Error(`source property must be specified`);
