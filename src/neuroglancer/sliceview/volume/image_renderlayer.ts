@@ -40,10 +40,9 @@ float scale(float x) {
 void main() {
   emitRGB(
     color * vec3(
-      scale(toNormalized(getDataValue()))+brightness,
-      scale(toNormalized(getDataValue()))+brightness,
-      scale(toNormalized(getDataValue()))+brightness
-    )*exp(contrast)
+      scale(
+        toNormalized(getDataValue()))
+       + brightness) * exp(contrast)
   );
 }
 `;
