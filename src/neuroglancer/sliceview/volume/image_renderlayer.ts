@@ -42,7 +42,7 @@ void main() {
         toNormalized(getDataValue()))
        + brightness) * exp(contrast)
   );
-`;
+}`;
 
 export function getTrackableFragmentMain(value = DEFAULT_FRAGMENT_MAIN) {
   return makeTrackableFragmentMain(value);
