@@ -16,16 +16,14 @@
 
 import {SliceView} from 'neuroglancer/sliceview/frontend';
 import {MultiscaleVolumeChunkSource} from 'neuroglancer/sliceview/volume/frontend';
-import {RenderLayer, RenderLayerBaseOptions} from 'neuroglancer/sliceview/volume/renderlayer';
+import {SliceViewVolumeRenderLayer, RenderLayerBaseOptions} from 'neuroglancer/sliceview/volume/renderlayer';
 import {TrackableAlphaValue} from 'neuroglancer/trackable_alpha';
 import {BLEND_FUNCTIONS, BLEND_MODES, TrackableBlendModeValue} from 'neuroglancer/trackable_blend';
 import {WatchableValue} from 'neuroglancer/trackable_value';
 import {glsl_COLORMAPS} from 'neuroglancer/webgl/colormaps';
-import {makeTrackableFragmentMain, WatchableShaderError} from 'neuroglancer/webgl/dynamic_shader';
+import {makeTrackableFragmentMain, shaderCodeWithLineDirective, WatchableShaderError} from 'neuroglancer/webgl/dynamic_shader';
 import {ShaderBuilder, ShaderProgram} from 'neuroglancer/webgl/shader';
 import {addControlsToBuilder, parseShaderUiControls, setControlsInShader, ShaderControlsParseResult, ShaderControlState} from 'neuroglancer/webgl/shader_ui_controls';
-
-export const FRAGMENT_MAIN_START = '//NEUROGLANCER_IMAGE_RENDERLAYER_FRAGMENT_MAIN_START';
 
 const DEFAULT_FRAGMENT_MAIN = `#uicontrol vec3 color color(default="white")
 #uicontrol float min slider(default=0, min=0, max=1, step=0.01)
@@ -44,7 +42,6 @@ void main() {
         toNormalized(getDataValue()))
        + brightness) * exp(contrast)
   );
-}
 `;
 
 export function getTrackableFragmentMain(value = DEFAULT_FRAGMENT_MAIN) {
@@ -58,7 +55,7 @@ export interface ImageRenderLayerOptions extends RenderLayerBaseOptions {
   shaderControlState: ShaderControlState;
 }
 
-export class ImageRenderLayer extends RenderLayer<ShaderControlsParseResult> {
+export class ImageRenderLayer extends SliceViewVolumeRenderLayer<ShaderControlsParseResult> {
   opacity: TrackableAlphaValue;
   blendMode: TrackableBlendModeValue;
   shaderControlState: ShaderControlState;
@@ -100,7 +97,7 @@ void emitTransparent() {
 `);
     builder.addFragmentCode(glsl_COLORMAPS);
     addControlsToBuilder(shaderParseResult.controls, builder);
-    builder.setFragmentMainFunction(FRAGMENT_MAIN_START + '\n' + shaderParseResult.code);
+    builder.setFragmentMainFunction(shaderCodeWithLineDirective(shaderParseResult.code));
   }
 
   initializeShader(
