@@ -16,7 +16,8 @@
 
 import debounce from 'lodash/debounce';
 import {RefCounted} from 'neuroglancer/util/disposable';
-import LinkedListOperations from 'neuroglancer/util/linked_list.0.ts';
+import {isInputTextTarget} from 'neuroglancer/util/dom';
+import LinkedListOperations from 'neuroglancer/util/linked_list.0';
 
 class AutomaticFocusList {
   next0: AutomaticallyFocusedElement|null;
@@ -56,11 +57,12 @@ export class AutomaticallyFocusedElement extends RefCounted {
   private scheduleUpdateFocus = this.registerCancellable(debounce(() => {
     const {activeElement} = document;
     const {element} = this;
-    if (element.contains(activeElement)) {
-      // Never steal focus from descendant.
+    if (element.contains(activeElement) || isInputTextTarget(activeElement)) {
+      // Never steal focus from descendant or from text input element.
       return;
     }
-    if (activeElement === this.lastFocusedElement || activeElement.contains(element)) {
+    if (activeElement != null &&
+        (activeElement === this.lastFocusedElement || activeElement.contains(element))) {
       this.element.focus();
     }
     this.lastFocusedElement = null;
@@ -69,6 +71,11 @@ export class AutomaticallyFocusedElement extends RefCounted {
   constructor(public element: HTMLElement) {
     super();
     element.tabIndex = -1;
+    this.registerEventListener(element, 'pointerdown', event => {
+      if (event.target !== element) return;
+      this.lastFocusedElement = null;
+      element.focus();
+    });
     this.registerEventListener(element, 'mouseenter', () => {
       this.lastFocusedElement = document.activeElement;
       this.scheduleUpdateFocus();

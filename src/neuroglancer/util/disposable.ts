@@ -18,6 +18,22 @@ export interface Disposable { dispose: () => void; }
 
 export type Disposer = Disposable | (() => void);
 
+const DEBUG_REF_COUNTS = false;
+
+export function invokeDisposer(disposer: Disposer) {
+  if (typeof disposer === 'object') {
+    disposer.dispose();
+  } else {
+    disposer();
+  }
+}
+
+export function invokeDisposers(disposers: Disposer[]) {
+  for (let i = disposers.length; i > 0; --i) {
+    invokeDisposer(disposers[i - 1]);
+  }
+}
+
 export function registerEventListener(
     target: EventTarget, type: string, listener: EventListenerOrEventListenerObject,
     options?: boolean|AddEventListenerOptions) {
@@ -33,7 +49,14 @@ export class RefCounted implements Disposable {
     ++this.refCount;
     return this;
   }
+  disposedStacks: any;
   dispose() {
+    if (DEBUG_REF_COUNTS) {
+      if (this.refCount === 0) {
+        debugger;
+      }
+      (this.disposedStacks = (this.disposedStacks || [])).push((new Error()).stack);
+    }
     if (--this.refCount !== 0) {
       return;
     }
@@ -43,16 +66,8 @@ export class RefCounted implements Disposable {
   protected refCountReachedZero() {
     this.disposed();
     let {disposers} = this;
-    if (disposers != null) {
-      let numDisposers = disposers.length;
-      for (let i = numDisposers; i > 0; --i) {
-        let disposer = disposers[i - 1];
-        if (typeof disposer === 'object') {
-          (<Disposable>disposer).dispose();
-        } else {
-          (<() => void>disposer).call(this);
-        }
-      }
+    if (disposers !== undefined) {
+      invokeDisposers(disposers);
       this.disposers = <any>undefined;
     }
     this.wasDisposed = true;
@@ -106,3 +121,13 @@ export type Owned<T extends Disposable> = T;
  * A variable of this type is not associated with an increment of the reference count.
  */
 export type Borrowed<T extends Disposable> = T;
+
+export function disposableOnce(value: Disposer|undefined) {
+  return () => {
+    if (value !== undefined) {
+      let x = value;
+      value = undefined;
+      invokeDisposer(x);
+    }
+  };
+}

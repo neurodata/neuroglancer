@@ -18,9 +18,11 @@
  * @file Facilities for laying out multiple LayerGroupViewer instances.
  */
 
+import './layer_groups_layout.css';
+
 import debounce from 'lodash/debounce';
+import {LayerListSpecification, LayerSubsetSpecification} from 'neuroglancer/layer';
 import {getViewerDropEffect, hasViewerDrag, LayerGroupViewer, viewerDragType} from 'neuroglancer/layer_group_viewer';
-import {LayerListSpecification, LayerSubsetSpecification} from 'neuroglancer/layer_specification';
 import {endLayerDrag, getDropLayers, getLayerDragInfo, updateLayerDropEffect} from 'neuroglancer/ui/layer_drag_and_drop';
 import {Borrowed, RefCounted, registerEventListener} from 'neuroglancer/util/disposable';
 import {removeFromParent} from 'neuroglancer/util/dom';
@@ -29,8 +31,6 @@ import {parseArray, verifyObject, verifyObjectProperty, verifyString} from 'neur
 import {NullarySignal} from 'neuroglancer/util/signal';
 import {Trackable} from 'neuroglancer/util/trackable';
 import {Viewer} from 'neuroglancer/viewer';
-
-require('./layer_groups_layout.css');
 
 interface LayoutComponent extends RefCounted {
   element: HTMLElement;
@@ -94,7 +94,7 @@ export class LayoutComponentContainer extends RefCounted {
             const {layerSpecification} = childComponent;
             layerSpecification.rootLayers.filter(layer => layersToKeep.has(layer));
             layerSpecification.rootLayers.managedLayers =
-              Array.from(childComponent.layerManager.managedLayers);
+                Array.from(childComponent.layerManager.managedLayers);
             layerSpecification.rootLayers.layersChanged.dispatch();
           } else {
             spec = childComponent.toJSON();
@@ -109,6 +109,7 @@ export class LayoutComponentContainer extends RefCounted {
       }));
       scheduleMaybeDelete();
     }
+    this.changed.dispatch();
   }
   element = document.createElement('div');
 
@@ -195,7 +196,7 @@ export class LayoutComponentContainer extends RefCounted {
       for (const {element: dropZone} of dropZones) {
         dropZone.style.display = 'none';
       }
-    });
+    }, /*capture=*/ true);
     this.registerEventListener(element, 'dragleave', (event: DragEvent) => {
       const {relatedTarget} = event;
       if (!dropZonesVisible) {
@@ -292,6 +293,7 @@ function getCommonViewerState(viewer: Viewer) {
     navigationState: viewer.navigationState.addRef(),
     perspectiveNavigationState: viewer.perspectiveNavigationState.addRef(),
     crossSectionBackgroundColor: viewer.crossSectionBackgroundColor,
+    perspectiveViewBackgroundColor: viewer.perspectiveViewBackgroundColor,
   };
 }
 
@@ -350,7 +352,7 @@ function setupDropZone(
       event.stopPropagation();
       let dropState: any;
       try {
-        dropState = JSON.parse(event.dataTransfer.getData(viewerDragType));
+        dropState = JSON.parse(event.dataTransfer!.getData(viewerDragType));
       } catch (e) {
         return;
       }
@@ -359,7 +361,7 @@ function setupDropZone(
           /*newTarget=*/true);
       if (dropLayers !== undefined && dropLayers.finalize(event)) {
         event.preventDefault();
-        event.dataTransfer.dropEffect = getDropEffect();
+        event.dataTransfer!.dropEffect = getDropEffect();
         endLayerDrag(event);
         const layerGroupViewer = makeLayerGroupViewer();
         for (const newLayer of dropLayers.layers.keys()) {
@@ -377,11 +379,17 @@ function setupDropZone(
           /*newTarget=*/true);
       if (dropLayers !== undefined && dropLayers.finalize(event)) {
         event.preventDefault();
-        event.dataTransfer.dropEffect = getDropEffect();
+        event.dataTransfer!.dropEffect = getDropEffect();
         endLayerDrag(event);
         const layerGroupViewer = makeLayerGroupViewer();
         for (const newLayer of dropLayers.layers.keys()) {
           layerGroupViewer.layerSpecification.add(newLayer);
+        }
+        try {
+          layerGroupViewer.layout.restoreState(dropLayers.layoutSpec);
+        } catch {
+          layerGroupViewer.layout.reset();
+          // Ignore error restoring layout.
         }
         return;
       }
@@ -560,10 +568,6 @@ export class RootLayoutContainer extends RefCounted implements Trackable {
   }
 
   toJSON() {
-    const result = this.container.toJSON();
-    if (result === this.defaultSpecification) {
-      return undefined;
-    }
-    return result;
+    return this.container.toJSON();
   }
 }

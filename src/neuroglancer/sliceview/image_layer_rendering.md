@@ -9,9 +9,66 @@ The fragment shader code can be entered interactively from the dropdown menu for
 
 ## Shader language
 
-The shader code must conform to the OpenGL ES Shading Language (GLSL) version 1.0, specified at <https://www.khronos.org/files/opengles_shading_language.pdf>.
+The shader code must conform to the OpenGL ES Shading Language (GLSL) version 3.0, specified at <https://www.khronos.org/registry/OpenGL/specs/es/3.0/GLSL_ES_Specification_3.00.pdf>.
 
-You may find the WebGL reference card helpful: <https://www.khronos.org/files/webgl/webgl-reference-card-1_0.pdf>.
+You may find the WebGL reference card helpful: <https://www.khronos.org/files/webgl20-reference-guide.pdf>.
+
+## UI Controls
+
+Rendering may depend on values specified by custom UI controls, specified by special `#uicontrol`
+directives supported by Neuroglancer as an extension to GLSL.
+
+For example:
+
+```glsl
+#uicontrol int channel slider(min=0, max=4)
+#uicontrol vec3 color color(default="red")
+#uicontrol float brightness slider(min=-1, max=1)
+#uicontrol float contrast slider(min=-3, max=3, step=0.01)
+void main() {
+  emitRGB(color *
+          (toNormalized(getDataValue(channel)) + brightness) *
+          exp(contrast));
+}
+```
+
+The directive syntax is:
+
+``` glsl
+#uicontrol <type> <name> <control>
+#uicontrol <type> <name> <control>(<parameter>=<value>, ...)
+```
+
+which has the effect of defining a variable `<name>` of GLSL type `<type>` whose value is set by a
+UI control of type `<control>`.  The valid parameters and `<type>` values depend on the `<control>`
+type.  If no parameters are specified, the parentheses may be omitted.
+
+### `slider` controls
+
+The `slider` control type specifies a slider control over an integer or float range.  Directive
+syntax:
+
+```glsl
+#uicontrol <type> <name> slider(min=<min>, max=<max>, default=<default>, step=<step>)
+```
+
+The `<type>` must be `float`, `int`, or `uint`.  The `min` and `max` parameters are required.  The
+`step` parameter is optional; if not specified, defaults to `1` for integer ranges and `(<max> -
+<min>) / 100` for float ranges.  The `default` parameter indicates the initial value and is
+optional; if not specified, defaults to `<min>` for integer ranges and to `(<min> + <max>)/2` for
+float ranges.
+
+### `color` controls
+
+The `color` control type specifies a color picker.  Directive syntax:
+
+```glsl
+#uicontrol vec3 <name> color(default="<color>")
+```
+
+The `<type>` must be `vec3`, which is set to the RGB `[0, 1]` representation of the color.  The
+`default` parameter indicates the initial value as a CSS color string (must be quoted), and defaults
+to `"white"` if not specified.
 
 ## API
 
@@ -29,16 +86,16 @@ float getDataValue(int channelIndex = 0);
 If no `channelIndex` is specified, the value for the first channel is returned.  (The default value of 0 is shown in the above declarations for exposition only.  As GLSL does not support default values for function parameters, the default value is actually implemented as a separate function overload.)  The return type depends on the data type of the volume.  Note that only `float` is a builtin GLSL type.  The remaining types are defined as simple structs in order to avoid ambiguity regarding the nature of the value:
 ```glsl
 struct uint8_t {
-  float value;
+  highp uint value;
 };
 struct uint16_t {
-  vec2 value;
+  highp uint value;
 };
 struct uint32_t {
-  vec4 value;
+  highp uint value;
 };
 struct uint64_t {
-  vec4 low, high;
+  highp uvec2 value;
 };
 ```
 For all of these struct types, the contained float values each specify a single byte as a normalized value in [0, 1].  To obtain the raw byte value, you must multiply by 255.
@@ -46,15 +103,17 @@ For all of these struct types, the contained float values each specify a single 
 To obtain the raw value as a float, call the `toRaw` function:
 ```glsl
 float toRaw(float x) { return x; }
-float toRaw(uint8_t x) { return x.value * 255.0; }
-float toRaw(uint16_t x) { return x.value.x * 255.0 + x.value.y * 65280.0; }
+highp uint toRaw(uint8_t x) { return x.value; }
+highp uint toRaw(uint16_t x) { return x.value; }
+highp uint toRaw(uint32_t x) { return x.value; }
 ```
 
 To obtain a normalized value that maps the full range of integer types to [0,1], call the `toNormalized` function:
 ```glsl
-float toNormalized(float x) { return x; }
-float toNormalized(uint8_t x) { return x.value; }
-float toNormalized(uint16_t x) { return toRaw(x) / 65535.0; }
+highp float toNormalized(float x) { return x; }
+highp float toNormalized(uint8_t x) { return float(x.value) / 255.0; }
+highp float toNormalized(uint16_t x) { return float(x.value) / 65535.0; }
+highp float toNormalized(uint32_t x) { return float(x.value) / 4294967295.0; }
 ```
 
 ### Emitting pixel values
@@ -91,7 +150,7 @@ If a discontinuous color mapping is applied to a volume that is stored or retrie
 
 | Data source | Behavior |
 | -------- | ------- |
-| `ndstore` | JPEG compression is used by default for image volumes.  To override this, append a `?encoding=npz` or `?encoding=raw` query string parameter to the data source URL. |
+| `boss` | JPEG compression is used by default for image volumes.  For 16 bit images, append a `?window=INT,INT` to request scaled images in 8 bit space. |
 | `brainmaps` | JPEG compression is used by default for single-channel uint8 volumes.  To override this, append a `?encoding=raw` query string parameter to the data source URL. |
 
 ### Examples

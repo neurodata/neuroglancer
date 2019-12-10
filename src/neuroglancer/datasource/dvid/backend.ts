@@ -15,14 +15,16 @@
  */
 
 import {WithParameters} from 'neuroglancer/chunk_manager/backend';
-import {SkeletonSourceParameters, VolumeChunkEncoding, VolumeChunkSourceParameters} from 'neuroglancer/datasource/dvid/base';
+import {MeshSourceParameters, SkeletonSourceParameters, VolumeChunkEncoding, VolumeChunkSourceParameters} from 'neuroglancer/datasource/dvid/base';
+import {assignMeshFragmentData, decodeTriangleVertexPositionsAndIndices, FragmentChunk, ManifestChunk, MeshSource} from 'neuroglancer/mesh/backend';
 import {SkeletonChunk, SkeletonSource} from 'neuroglancer/skeleton/backend';
 import {decodeSwcSkeletonChunk} from 'neuroglancer/skeleton/decode_swc_skeleton';
 import {decodeCompressedSegmentationChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/compressed_segmentation';
 import {decodeJpegChunk} from 'neuroglancer/sliceview/backend_chunk_decoders/jpeg';
 import {VolumeChunk, VolumeChunkSource} from 'neuroglancer/sliceview/volume/backend';
 import {CancellationToken} from 'neuroglancer/util/cancellation';
-import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
+import {Endianness} from 'neuroglancer/util/endian';
+import {cancellableFetchOk, responseArrayBuffer} from 'neuroglancer/util/http_request';
 import {registerSharedObject} from 'neuroglancer/worker_rpc';
 
 @registerSharedObject() export class DVIDSkeletonSource extends
@@ -30,11 +32,9 @@ import {registerSharedObject} from 'neuroglancer/worker_rpc';
   download(chunk: SkeletonChunk, cancellationToken: CancellationToken) {
     const {parameters} = this;
     let bodyid = `${chunk.objectId}`;
-    const path = `/api/node/${parameters['nodeKey']}/${parameters['dataInstanceKey']}/key/` +
-        bodyid + '_swc';
-
-    return sendHttpRequest(
-               openShardedHttpRequest(parameters.baseUrls, path), 'arraybuffer', cancellationToken)
+    const url = `${parameters.baseUrl}/api/node/${parameters['nodeKey']}` +
+        `/${parameters['dataInstanceKey']}/key/` + bodyid + '_swc';
+    return cancellableFetchOk(url, {}, responseArrayBuffer, cancellationToken)
         .then(response => {
           let enc = new TextDecoder('utf-8');
           decodeSwcSkeletonChunk(chunk, enc.decode(response));
@@ -42,9 +42,37 @@ import {registerSharedObject} from 'neuroglancer/worker_rpc';
   }
 }
 
+export function decodeFragmentChunk(chunk: FragmentChunk, response: ArrayBuffer) {
+  let dv = new DataView(response);
+  let numVertices = dv.getUint32(0, true);
+  assignMeshFragmentData(
+      chunk,
+      decodeTriangleVertexPositionsAndIndices(
+          response, Endianness.LITTLE, /*vertexByteOffset=*/ 4, numVertices));
+}
+
+@registerSharedObject() export class DVIDMeshSource extends
+(WithParameters(MeshSource, MeshSourceParameters)) {
+  download(chunk: ManifestChunk) {
+    // DVID does not currently store meshes chunked, the main
+    // use-case is for low-resolution 3D views.
+    // for now, fragmentId is the body id
+    chunk.fragmentIds = [`${chunk.objectId}`];
+    return Promise.resolve(undefined);
+  }
+
+  downloadFragment(chunk: FragmentChunk, cancellationToken: CancellationToken) {
+    const {parameters} = this;
+    const url = `${parameters.baseUrl}/api/node/${parameters['nodeKey']}/${
+        parameters['dataInstanceKey']}/key/${chunk.fragmentId}.ngmesh`;
+    return cancellableFetchOk(url, {}, responseArrayBuffer, cancellationToken)
+        .then(response => decodeFragmentChunk(chunk, response));
+  }
+}
+
 @registerSharedObject() export class DVIDVolumeChunkSource extends
 (WithParameters(VolumeChunkSource, VolumeChunkSourceParameters)) {
-  download(chunk: VolumeChunk, cancellationToken: CancellationToken) {
+  async download(chunk: VolumeChunk, cancellationToken: CancellationToken) {
     let params = this.parameters;
     let path: string;
     {
@@ -56,15 +84,14 @@ import {registerSharedObject} from 'neuroglancer/worker_rpc';
       // if the volume is an image, get a jpeg
       path = this.getPath(chunkPosition, chunkDataSize);
     }
-    let decoder = this.getDecoder(params);
-    return sendHttpRequest(
-               openShardedHttpRequest(params.baseUrls, path), 'arraybuffer', cancellationToken)
-        .then(
-            response => decoder(
-                chunk,
-                (params.encoding === VolumeChunkEncoding.JPEG) ? response.slice(16) : response));
+    const decoder = this.getDecoder(params);
+    const response = await cancellableFetchOk(
+        `${params.baseUrl}${path}`, {}, responseArrayBuffer, cancellationToken);
+    await decoder(
+        chunk, cancellationToken,
+        (params.encoding === VolumeChunkEncoding.JPEG) ? response.slice(16) : response);
   }
-  getPath(chunkPosition: Float32Array, chunkDataSize: Float32Array) {
+  getPath(chunkPosition: Float32Array, chunkDataSize: Uint32Array) {
     let params = this.parameters;
     if (params.encoding === VolumeChunkEncoding.JPEG) {
       return `/api/node/${params['nodeKey']}/${params['dataInstanceKey']}/subvolblocks/` +

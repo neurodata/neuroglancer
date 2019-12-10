@@ -17,35 +17,40 @@
 // Import to register the shared object types.
 import 'neuroglancer/shared_disjoint_sets';
 import 'neuroglancer/uint64_set';
+import 'neuroglancer/uint64_map';
 
 import {withChunkManager} from 'neuroglancer/chunk_manager/backend';
-import {Bounds, VisibleSegmentsState} from 'neuroglancer/segmentation_display_state/base';
+import {RenderLayerTransformOrError} from 'neuroglancer/render_coordinate_transform';
+import {VisibleSegmentsState} from 'neuroglancer/segmentation_display_state/base';
 import {SharedDisjointUint64Sets} from 'neuroglancer/shared_disjoint_sets';
+import {SharedWatchableValue} from 'neuroglancer/shared_watchable_value';
 import {Uint64Set} from 'neuroglancer/uint64_set';
 import {withSharedVisibility} from 'neuroglancer/visibility_priority/backend';
 import {RPC, SharedObjectCounterpart} from 'neuroglancer/worker_rpc';
-import {SharedWatchableValue} from 'neuroglancer/shared_watchable_value';
 
 const Base = withSharedVisibility(withChunkManager(SharedObjectCounterpart));
 
 export class SegmentationLayerSharedObjectCounterpart extends Base implements VisibleSegmentsState {
   visibleSegments: Uint64Set;
-  clipBounds: SharedWatchableValue<Bounds>;
   segmentEquivalences: SharedDisjointUint64Sets;
+  transform: SharedWatchableValue<RenderLayerTransformOrError>;
+  renderScaleTarget: SharedWatchableValue<number>;
 
   constructor(rpc: RPC, options: any) {
     super(rpc, options);
     // No need to increase the reference count of visibleSegments or
     // segmentEquivalences since our owner will hold a reference to their owners.
     this.visibleSegments = <Uint64Set>rpc.get(options['visibleSegments']);
-    this.clipBounds = <SharedWatchableValue<Bounds>>rpc.get(options['clipBounds']);
     this.segmentEquivalences = <SharedDisjointUint64Sets>rpc.get(options['segmentEquivalences']);
+    this.transform = rpc.get(options['transform']);
+    this.renderScaleTarget = rpc.get(options['renderScaleTarget']);
 
     const scheduleUpdateChunkPriorities = () => {
       this.chunkManager.scheduleUpdateChunkPriorities();
     };
     this.registerDisposer(this.visibleSegments.changed.add(scheduleUpdateChunkPriorities));
     this.registerDisposer(this.segmentEquivalences.changed.add(scheduleUpdateChunkPriorities));
-    this.registerDisposer(this.clipBounds.changed.add(scheduleUpdateChunkPriorities));
+    this.registerDisposer(this.transform.changed.add(scheduleUpdateChunkPriorities));
+    this.registerDisposer(this.renderScaleTarget.changed.add(scheduleUpdateChunkPriorities));
   }
 }

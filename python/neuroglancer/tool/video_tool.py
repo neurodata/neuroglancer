@@ -233,7 +233,12 @@ def save_script(script_path, keypoints):
         for x in keypoints:
             f.write(neuroglancer.to_url(x['state']) + '\n')
             f.write(str(x['transition_duration']) + '\n')
-    os.rename(temp_path, script_path)
+    if hasattr(os, 'replace'):
+        # Only available on Python3
+        os.replace(temp_path, script_path)
+    else:
+        # Fails on Windows if script_path already exists
+        os.rename(temp_path, script_path)
 
 
 class ScriptEditor(object):
@@ -460,6 +465,7 @@ def run_render(args):
         keypoint['state'].gpu_memory_limit = args.gpu_memory_limit
         keypoint['state'].system_memory_limit = args.system_memory_limit
         keypoint['state'].concurrent_downloads = args.concurrent_downloads
+        keypoint['state'].cross_section_background_color = args.cross_section_background_color
     viewers = [neuroglancer.Viewer() for _ in range(args.shards)]
     for viewer in viewers:
         with viewer.config_state.txn() as s:
@@ -591,6 +597,11 @@ if __name__ == '__main__':
         type=int,
         default=10,
         help='Number of frames to prefetch when rendering.')
+    ap_render.add_argument(
+        '--cross-section-background-color',
+        type=str,
+        default='black',
+        help='Background color for cross sections.')
 
     args = ap.parse_args()
     if args.bind_address:

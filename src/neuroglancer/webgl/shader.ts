@@ -15,14 +15,13 @@
  */
 
 import {RefCounted} from 'neuroglancer/util/disposable';
-import {GL_FRAGMENT_SHADER, GL_VERTEX_SHADER} from 'neuroglancer/webgl/constants';
 import {GL} from 'neuroglancer/webgl/context';
 
 const DEBUG_SHADER = false;
 
 export enum ShaderType {
-  VERTEX = GL_VERTEX_SHADER,
-  FRAGMENT = GL_FRAGMENT_SHADER
+  VERTEX = WebGL2RenderingContext.VERTEX_SHADER,
+  FRAGMENT = WebGL2RenderingContext.FRAGMENT_SHADER
 }
 
 export interface ShaderErrorMessage {
@@ -89,8 +88,8 @@ export class ShaderLinkError extends Error {
   }
 }
 
-export function getShader(gl: WebGLRenderingContext, source: string, shaderType: ShaderType) {
-  var shader = gl.createShader(shaderType);
+export function getShader(gl: WebGL2RenderingContext, source: string, shaderType: ShaderType) {
+  var shader = gl.createShader(shaderType)!;
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
 
@@ -122,6 +121,16 @@ export function getShader(gl: WebGLRenderingContext, source: string, shaderType:
 
 export type AttributeIndex = number;
 
+export type AttributeType = number;
+
+export interface VertexShaderInputBinder {
+  enable(divisor: number): void;
+  disable(): void;
+  bind(
+      buffer: WebGLBuffer, attributeType: AttributeType, normalized: boolean, stride?: number,
+      offset?: number): void;
+}
+
 export class ShaderProgram extends RefCounted {
   program: WebGLProgram;
   vertexShader: WebGLShader;
@@ -129,6 +138,7 @@ export class ShaderProgram extends RefCounted {
   attributes = new Map<string, AttributeIndex>();
   uniforms = new Map<string, WebGLUniformLocation|null>();
   textureUnits: Map<any, number>;
+  vertexShaderInputBinders: {[name: string]: VertexShaderInputBinder} = {};
 
   constructor(
       public gl: GL, public vertexSource: string, public fragmentSource: string,
@@ -137,7 +147,7 @@ export class ShaderProgram extends RefCounted {
     let vertexShader = this.vertexShader = getShader(gl, vertexSource, gl.VERTEX_SHADER);
     let fragmentShader = this.fragmentShader = getShader(gl, fragmentSource, gl.FRAGMENT_SHADER);
 
-    let shaderProgram = gl.createProgram();
+    let shaderProgram = gl.createProgram()!;
     gl.attachShader(shaderProgram, vertexShader);
     gl.attachShader(shaderProgram, fragmentShader);
     gl.linkProgram(shaderProgram);
@@ -230,6 +240,7 @@ export class ShaderCode {
             this.add(y);
           }
         } else {
+          console.log('Invalid code type', x);
           throw new Error('Invalid code type');
         }
     }
@@ -243,17 +254,36 @@ export class ShaderCode {
 export type ShaderInitializer = ((x: ShaderProgram) => void);
 export type ShaderModule = ((x: ShaderBuilder) => void);
 
+export type ShaderSamplerPrefix = 'i'|'u'|'';
+
+export type ShaderSamplerType =
+    'sampler2D'|'usampler2D'|'isampler2D'|'sampler3D'|'usampler3D'|'isampler3D';
+
+export type ShaderInterpolationMode =
+    ''|'centroid'|'flat centroid'|'smooth centroid'|'flat'|'smooth';
+
+export const textureTargetForSamplerType = {
+  'sampler2D': WebGL2RenderingContext.TEXTURE_2D,
+  'isampler2D': WebGL2RenderingContext.TEXTURE_2D,
+  'usampler2D': WebGL2RenderingContext.TEXTURE_2D,
+  'sampler3D': WebGL2RenderingContext.TEXTURE_3D,
+  'isampler3D': WebGL2RenderingContext.TEXTURE_3D,
+  'usampler3D': WebGL2RenderingContext.TEXTURE_3D,
+};
+
 export class ShaderBuilder {
   private nextSymbolID = 0;
   private nextTextureUnit = 0;
   private uniformsCode = '';
   private attributesCode = '';
-  private varyingsCode = '';
+  private varyingsCodeVS = '';
+  private varyingsCodeFS = '';
   private fragmentExtensionsSet = new Set<string>();
   private fragmentExtensions = '';
   private vertexCode = new ShaderCode();
   private vertexMain = '';
   private fragmentCode = new ShaderCode();
+  private outputBufferCode = '';
   private fragmentMain = '';
   private required = new Set<ShaderModule>();
   private uniforms = new Array<string>();
@@ -272,9 +302,9 @@ export class ShaderBuilder {
     return old;
   }
 
-  addTextureSampler2D(name: string, symbol: Symbol, extent?: number) {
+  addTextureSampler(samplerType: ShaderSamplerType, name: string, symbol: Symbol, extent?: number) {
     let textureUnit = this.allocateTextureUnit(symbol, extent);
-    this.addUniform('highp sampler2D', name, extent);
+    this.addUniform(`highp ${samplerType}`, name, extent);
     this.addInitializer(shader => {
       if (extent) {
         let textureUnits = new Int32Array(extent);
@@ -295,12 +325,20 @@ export class ShaderBuilder {
 
   addAttribute(typeName: string, name: string) {
     this.attributes.push(name);
-    this.attributesCode += `attribute ${typeName} ${name};\n`;
+    this.attributesCode += `in ${typeName} ${name};\n`;
     return name;
   }
 
-  addVarying(typeName: string, name: string) {
-    this.varyingsCode += `varying ${typeName} ${name};\n`;
+  addVarying(typeName: string, name: string, interpolationMode: ShaderInterpolationMode = '') {
+    this.varyingsCodeVS += `${interpolationMode} out ${typeName} ${name};\n`;
+    this.varyingsCodeFS += `${interpolationMode} in ${typeName} ${name};\n`;
+  }
+
+  addOutputBuffer(typeName: string, name: string, location: number|null) {
+    if (location !== null) {
+      this.outputBufferCode += `layout(location = ${location}) `;
+    }
+    this.outputBufferCode += `out ${typeName} ${name};\n`;
   }
 
   addUniform(typeName: string, name: string, extent?: number) {
@@ -359,21 +397,24 @@ ${code}
   }
 
   build() {
-    let vertexSource = `
+    let vertexSource = `#version 300 es
 precision highp float;
+precision highp int;
 ${this.uniformsCode}
 ${this.attributesCode}
-${this.varyingsCode}
+${this.varyingsCodeVS}
 ${this.vertexCode}
 void main() {
 ${this.vertexMain}
 }
 `;
-    let fragmentSource = `
+    let fragmentSource = `#version 300 es
 ${this.fragmentExtensions}
 precision highp float;
+precision highp int;
 ${this.uniformsCode}
-${this.varyingsCode}
+${this.varyingsCodeFS}
+${this.outputBufferCode}
 ${this.fragmentCode}
 ${this.fragmentMain}
 `;
@@ -402,7 +443,7 @@ export function shaderContainsIdentifiers(code: string, identifiers: Iterable<st
   return found;
 }
 
-export function dependentShaderGetter(
+export function emitterDependentShaderGetter(
     refCounted: RefCounted, gl: GL,
     defineShader: (builder: ShaderBuilder) => void): ((emitter: ShaderModule) => ShaderProgram) {
   const shaders = new Map<ShaderModule, ShaderProgram>();

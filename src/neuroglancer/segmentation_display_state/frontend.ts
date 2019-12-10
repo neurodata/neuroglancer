@@ -15,11 +15,15 @@
  */
 
 import {ChunkManager} from 'neuroglancer/chunk_manager/frontend';
-import {CoordinateTransform} from 'neuroglancer/coordinate_transform';
 import {LayerSelectedValues, UserLayer} from 'neuroglancer/layer';
+import {WatchableRenderLayerTransform} from 'neuroglancer/render_coordinate_transform';
+import {RenderScaleHistogram} from 'neuroglancer/render_scale_statistics';
 import {SegmentColorHash} from 'neuroglancer/segment_color';
-import {forEachVisibleSegment, getObjectKey, VisibleSegmentsState} from 'neuroglancer/segmentation_display_state/base';
+import {VisibleSegmentsState} from 'neuroglancer/segmentation_display_state/base';
+import {SharedWatchableValue} from 'neuroglancer/shared_watchable_value';
 import {TrackableAlphaValue} from 'neuroglancer/trackable_alpha';
+import {TrackableValue} from 'neuroglancer/trackable_value';
+import {Uint64Map} from 'neuroglancer/uint64_map';
 import {Uint64Set} from 'neuroglancer/uint64_set';
 import {hsvToRgb, rgbToHsv} from 'neuroglancer/util/colorspace';
 import {RefCounted} from 'neuroglancer/util/disposable';
@@ -82,6 +86,7 @@ export class SegmentSelectionState extends RefCounted {
 export interface SegmentationDisplayState extends VisibleSegmentsState {
   segmentSelectionState: SegmentSelectionState;
   segmentColorHash: SegmentColorHash;
+  segmentStatedColors: Uint64Map;
   saturation: TrackableAlphaValue;
   highlightedSegments: Uint64Set;
 }
@@ -91,7 +96,9 @@ export interface SegmentationDisplayStateWithAlpha extends SegmentationDisplaySt
 }
 
 export interface SegmentationDisplayState3D extends SegmentationDisplayStateWithAlpha {
-  objectToDataTransform: CoordinateTransform;
+  transform: WatchableRenderLayerTransform;
+  renderScaleHistogram: RenderScaleHistogram;
+  renderScaleTarget: TrackableValue<number>;
 }
 
 export function registerRedrawWhenSegmentationDisplayStateChanged(
@@ -99,6 +106,7 @@ export function registerRedrawWhenSegmentationDisplayStateChanged(
   const dispatchRedrawNeeded = renderLayer.redrawNeeded.dispatch;
   renderLayer.registerDisposer(displayState.segmentColorHash.changed.add(dispatchRedrawNeeded));
   renderLayer.registerDisposer(displayState.visibleSegments.changed.add(dispatchRedrawNeeded));
+  renderLayer.registerDisposer(displayState.saturation.changed.add(dispatchRedrawNeeded));
   renderLayer.registerDisposer(displayState.highlightedSegments.changed.add(dispatchRedrawNeeded));
   renderLayer.registerDisposer(displayState.segmentEquivalences.changed.add(dispatchRedrawNeeded));
   renderLayer.registerDisposer(
@@ -118,13 +126,16 @@ export function registerRedrawWhenSegmentationDisplayState3DChanged(
     renderLayer: {redrawNeeded: NullarySignal}&RefCounted) {
   registerRedrawWhenSegmentationDisplayStateWithAlphaChanged(displayState, renderLayer);
   renderLayer.registerDisposer(
-      displayState.objectToDataTransform.changed.add(renderLayer.redrawNeeded.dispatch));
+      displayState.transform.changed.add(renderLayer.redrawNeeded.dispatch));
+  renderLayer.registerDisposer(
+      displayState.renderScaleTarget.changed.add(renderLayer.redrawNeeded.dispatch));
 }
 
 /**
- * Temporary value used by getObjectColor.
+ * Temporary values used by getObjectColor.
  */
 const tempColor = vec4.create();
+const tempStatedColor = new Uint64();
 
 /**
  * Returns the alpha-premultiplied color to use.
@@ -133,7 +144,16 @@ export function getObjectColor(
     displayState: SegmentationDisplayState, objectId: Uint64, alpha: number = 1) {
   const color = tempColor;
   color[3] = alpha;
-  displayState.segmentColorHash.compute(color, objectId);
+  if (displayState.segmentStatedColors.has(objectId)) {
+    // If displayState maps the ID to a color, use it
+    displayState.segmentStatedColors.get(objectId, tempStatedColor);
+    color[0] = ((tempStatedColor.low & 0xff0000) >>> 16) / 255.0;
+    color[1] = ((tempStatedColor.low & 0x00ff00) >>>  8) / 255.0;
+    color[2] = ((tempStatedColor.low & 0x0000ff))        / 255.0;
+  } else {
+    displayState.segmentColorHash.compute(color, objectId);
+  }
+
   if (displayState.segmentSelectionState.isSelected(objectId)) {
     for (let i = 0; i < 3; ++i) {
       color[i] = color[i] * 0.5 + 0.5;
@@ -151,7 +171,7 @@ export function getObjectColor(
   color[2] = rgb[2];
 
   // Color highlighted segments
-  if(displayState.highlightedSegments.has(objectId)) {
+  if (displayState.highlightedSegments.has(objectId)) {
     // Make it vivid blue for selection
     color[0] = 0.2;
     color[1] = 0.2;
@@ -165,21 +185,9 @@ export function getObjectColor(
   return color;
 }
 
-export function forEachSegmentToDraw<SegmentData>(
-    displayState: SegmentationDisplayState, objects: Map<string, SegmentData>,
-    callback: (rootObjectId: Uint64, objectId: Uint64, segmentData: SegmentData) => void) {
-  forEachVisibleSegment(displayState, (objectId, rootObjectId) => {
-    const key = getObjectKey(objectId, displayState.clipBounds.value);
-    const segmentData = objects.get(key);
-    if (segmentData !== undefined) {
-      callback(rootObjectId, objectId, segmentData);
-    }
-  });
-}
-
 const Base = withSharedVisibility(SharedObject);
 export class SegmentationLayerSharedObject extends Base {
-  constructor(public chunkManager: ChunkManager, public displayState: SegmentationDisplayState) {
+  constructor(public chunkManager: ChunkManager, public displayState: SegmentationDisplayState3D) {
     super();
   }
 
@@ -188,7 +196,14 @@ export class SegmentationLayerSharedObject extends Base {
     options['chunkManager'] = this.chunkManager.rpcId;
     options['visibleSegments'] = displayState.visibleSegments.rpcId;
     options['segmentEquivalences'] = displayState.segmentEquivalences.rpcId;
-    options['clipBounds'] = displayState.clipBounds.rpcId;
+    options['transform'] =
+        this.registerDisposer(SharedWatchableValue.makeFromExisting(
+                                  this.chunkManager.rpc!, this.displayState.transform))
+            .rpcId;
+    options['renderScaleTarget'] =
+        this.registerDisposer(SharedWatchableValue.makeFromExisting(
+                                  this.chunkManager.rpc!, this.displayState.renderScaleTarget))
+            .rpcId;
     super.initializeCounterpart(this.chunkManager.rpc!, options);
   }
 }

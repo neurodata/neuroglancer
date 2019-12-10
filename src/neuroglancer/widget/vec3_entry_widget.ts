@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
-import {TrackableVec3} from 'neuroglancer/trackable_vec3.ts';
+import {TrackableVec3} from 'neuroglancer/trackable_vec3';
 import {RefCounted} from 'neuroglancer/util/disposable';
 import {vec3} from 'neuroglancer/util/geom';
 import {verifyFiniteFloat} from 'neuroglancer/util/json';
 import {Signal} from 'neuroglancer/util/signal';
 
-require('./vec3.css');
+import './vec3.css';
 
 export class Vec3Widget extends RefCounted {
   promptElement = document.createElement('span');

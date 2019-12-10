@@ -16,104 +16,114 @@
 
 import {ChunkState} from 'neuroglancer/chunk_manager/base';
 import {Chunk, ChunkManager, ChunkSource, WithParameters} from 'neuroglancer/chunk_manager/frontend';
-import {CoordinateTransform} from 'neuroglancer/coordinate_transform';
+import {VisibleLayerInfo} from 'neuroglancer/layer';
 import {PerspectiveViewRenderContext, PerspectiveViewRenderLayer} from 'neuroglancer/perspective_view/render_layer';
+import {WatchableRenderLayerTransform} from 'neuroglancer/render_coordinate_transform';
+import {ThreeDimensionalRenderLayerAttachmentState, update3dRenderLayerAttachment} from 'neuroglancer/renderlayer';
 import {GET_SINGLE_MESH_INFO_RPC_ID, SINGLE_MESH_CHUNK_KEY, SINGLE_MESH_LAYER_RPC_ID, SingleMeshInfo, SingleMeshSourceParameters, SingleMeshSourceParametersWithInfo, VertexAttributeInfo} from 'neuroglancer/single_mesh/base';
-import {TrackableValue} from 'neuroglancer/trackable_value';
+import {WatchableValue} from 'neuroglancer/trackable_value';
 import {DataType} from 'neuroglancer/util/data_type';
 import {mat4, vec3} from 'neuroglancer/util/geom';
-import {parseArray, stableStringify, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
-import {getObjectId} from 'neuroglancer/util/object_id';
 import {Uint64} from 'neuroglancer/util/uint64';
 import {withSharedVisibility} from 'neuroglancer/visibility_priority/frontend';
 import {Buffer} from 'neuroglancer/webgl/buffer';
+import {glsl_COLORMAPS} from 'neuroglancer/webgl/colormaps';
 import {GL} from 'neuroglancer/webgl/context';
-import {makeWatchableShaderError} from 'neuroglancer/webgl/dynamic_shader';
+import {makeTrackableFragmentMain, makeWatchableShaderError, parameterizedEmitterDependentShaderGetter, shaderCodeWithLineDirective} from 'neuroglancer/webgl/dynamic_shader';
 import {CountingBuffer, countingBufferShaderModule, disableCountingBuffer, getCountingBuffer, IndexBufferAttributeHelper, makeIndexBuffer} from 'neuroglancer/webgl/index_emulation';
-import {compute1dTextureFormat, compute1dTextureLayout, OneDimensionalTextureAccessHelper, OneDimensionalTextureFormat, setOneDimensionalTextureData, TextureAccessCoefficients} from 'neuroglancer/webgl/one_dimensional_texture_access';
-import {ShaderBuilder, ShaderModule, ShaderProgram} from 'neuroglancer/webgl/shader';
-import {getShaderType, glsl_addUint32, glsl_divmodUint32, setVec4FromUint32} from 'neuroglancer/webgl/shader_lib';
+import {ShaderBuilder, ShaderModule, ShaderProgram, ShaderSamplerType} from 'neuroglancer/webgl/shader';
+import {getShaderType} from 'neuroglancer/webgl/shader_lib';
+import {addControlsToBuilder, parseShaderUiControls, setControlsInShader, ShaderControlsParseResult, ShaderControlState} from 'neuroglancer/webgl/shader_ui_controls';
+import {compute1dTextureLayout, computeTextureFormat, getSamplerPrefixForDataType, OneDimensionalTextureAccessHelper, setOneDimensionalTextureData, TextureFormat} from 'neuroglancer/webgl/texture_access';
 import {SharedObject} from 'neuroglancer/worker_rpc';
-
-export const FRAGMENT_MAIN_START = '//NEUROGLANCER_SINGLE_MESH_LAYER_FRAGMENT_MAIN_START';
-
-const glsl_COLORMAPS = require<string>('neuroglancer/webgl/colormaps.glsl');
 
 const DEFAULT_FRAGMENT_MAIN = `void main() {
   emitGray();
 }
 `;
 
-export type TrackableFragmentMain = TrackableValue<string>;
-
-export function getTrackableFragmentMain(value = DEFAULT_FRAGMENT_MAIN) {
-  return new TrackableValue<string>(value, verifyString);
-}
-
-export type TrackableAttributeNames = TrackableValue<Array<string|undefined>>;
-
-export function getTrackableAttributeNames() {
-  return new TrackableValue<Array<string|undefined>>([], x => parseArray(x, verifyOptionalString));
-}
-
 export class SingleMeshDisplayState {
   shaderError = makeWatchableShaderError();
-  fragmentMain = getTrackableFragmentMain();
-  attributeNames = getTrackableAttributeNames();
-  objectToDataTransform = new CoordinateTransform();
+  fragmentMain = makeTrackableFragmentMain(DEFAULT_FRAGMENT_MAIN);
+  shaderControlState = new ShaderControlState(this.fragmentMain);
 }
 
 export function getShaderAttributeType(info: {dataType: DataType, numComponents: number}) {
   return getShaderType(info.dataType, info.numComponents);
 }
 
-const vertexAttributeSamplerSymbol = Symbol('SingleMeshShaderManager.vertexAttributeTextureUnit');
+const vertexAttributeSamplerSymbols: Symbol[] = [];
 
-const vertexPositionTextureFormat =
-    compute1dTextureFormat(new OneDimensionalTextureFormat(), DataType.FLOAT32, 3);
+const vertexPositionTextureFormat = computeTextureFormat(new TextureFormat(), DataType.FLOAT32, 3);
 const vertexNormalTextureFormat = vertexPositionTextureFormat;
+
+function makeValidIdentifier(x: string) {
+  return x.split(/[^a-zA-Z0-9]+/).filter(y => y).join('_');
+}
+
+export function pickAttributeNames(existingNames: string[]) {
+  const seenNames = new Set<string>();
+  let result: string[] = [];
+  for (let existingName of existingNames) {
+    let name = makeValidIdentifier(existingName);
+    let suffix = '';
+    let suffixNumber = 0;
+    while (seenNames.has(name + suffix)) {
+      suffix = '' + (++suffixNumber);
+    }
+    result.push(name + suffix);
+  }
+  return result;
+}
 
 export class SingleMeshShaderManager {
   private tempLightVec = new Float32Array(4);
-  private tempPickID = new Float32Array(4);
 
   private textureAccessHelper = new OneDimensionalTextureAccessHelper('vertexData');
-  private indexBufferHelper = new IndexBufferAttributeHelper('VertexIndex');
+  private indexBufferHelper = new IndexBufferAttributeHelper('vertexIndex');
 
-  constructor(
-      public attributeNames: (string|undefined)[], public attributeInfo: VertexAttributeInfo[],
-      public fragmentMain: string) {}
+  constructor(public attributeNames: string[], public attributeInfo: VertexAttributeInfo[]) {}
 
   defineAttributeAccess(builder: ShaderBuilder, vertexIndexVariable: string) {
     let {textureAccessHelper} = this;
     textureAccessHelper.defineShader(builder);
+    const {attributeNames} = this;
+    let numAttributes = 2 + attributeNames.length;
+    for (let j = vertexAttributeSamplerSymbols.length; j < numAttributes; ++j) {
+      vertexAttributeSamplerSymbols[j] =
+          Symbol(`SingleMeshShaderManager.vertexAttributeTextureUnit${j}`);
+    }
+    numAttributes = 0;
+
+    builder.addTextureSampler(
+        `sampler2D`, 'uVertexAttributeSampler0', vertexAttributeSamplerSymbols[numAttributes++]);
+    builder.addTextureSampler(
+        `sampler2D`, 'uVertexAttributeSampler1', vertexAttributeSamplerSymbols[numAttributes++]);
+
     builder.addVertexCode(textureAccessHelper.getAccessor(
-        'readVertexPosition', 'uVertexAttributeSampler[0]', DataType.FLOAT32, 3));
+        'readVertexPosition', 'uVertexAttributeSampler0', DataType.FLOAT32, 3));
     builder.addVertexCode(textureAccessHelper.getAccessor(
-        'readVertexNormal', 'uVertexAttributeSampler[1]', DataType.FLOAT32, 3));
-    let numAttributes = 2;
+        'readVertexNormal', 'uVertexAttributeSampler1', DataType.FLOAT32, 3));
     let vertexMain = `
 vec3 vertexPosition = readVertexPosition(${vertexIndexVariable});
 vec3 vertexNormal = readVertexNormal(${vertexIndexVariable});
 `;
-    const {attributeNames} = this;
     this.attributeInfo.forEach((info, i) => {
-      const attributeName = attributeNames[i];
-      if (attributeName !== undefined) {
-        const attributeType = getShaderAttributeType(info);
-        builder.addVarying(`highp ${attributeType}`, `vCustom${i}`);
-        builder.addFragmentCode(`
+      builder.addTextureSampler(
+          `${getSamplerPrefixForDataType(info.dataType)}sampler2D` as ShaderSamplerType,
+          `uVertexAttributeSampler${numAttributes}`, vertexAttributeSamplerSymbols[numAttributes]);
+
+      const attributeType = getShaderAttributeType(info);
+      builder.addVarying(`highp ${attributeType}`, `vCustom${i}`);
+      builder.addFragmentCode(`
 #define ${attributeNames[i]} vCustom${i}
 `);
-        builder.addVertexCode(textureAccessHelper.getAccessor(
-            `readAttribute${i}`, `uVertexAttributeSampler[${numAttributes}]`, info.dataType,
-            info.numComponents));
-        vertexMain += `vCustom${i} = readAttribute${i}(${vertexIndexVariable});\n`;
-        numAttributes += 1;
-      }
+      builder.addVertexCode(textureAccessHelper.getAccessor(
+          `readAttribute${i}`, `uVertexAttributeSampler${numAttributes}`, info.dataType,
+          info.numComponents));
+      vertexMain += `vCustom${i} = readAttribute${i}(${vertexIndexVariable});\n`;
+      ++numAttributes;
     });
-    builder.addTextureSampler2D(
-        'uVertexAttributeSampler', vertexAttributeSamplerSymbol, numAttributes);
     builder.addVertexMain(vertexMain);
   }
 
@@ -125,16 +135,11 @@ vec3 vertexNormal = readVertexNormal(${vertexIndexVariable});
     builder.addUniform('highp vec4', 'uColor');
     builder.addUniform('highp mat4', 'uModelMatrix');
     builder.addUniform('highp mat4', 'uProjection');
-    builder.addUniform('highp vec4', 'uPickID');
-    builder.addVarying('highp vec4', 'vPickID');
-    builder.addVertexCode(glsl_addUint32);
-    builder.addVertexCode(glsl_divmodUint32);
+    builder.addUniform('highp uint', 'uPickID');
+    builder.addVarying('highp uint', 'vPickID', 'flat');
     builder.addVertexMain(`
-float vertexIndex = getVertexIndex();
-uint32_t triangleIndex;
-divmod(getPrimitiveIndex(), 3.0, triangleIndex);
-uint32_t pickID; pickID.value = uPickID;
-vPickID = add(pickID, triangleIndex).value;
+uint triangleIndex = getPrimitiveIndex() / 3u;
+vPickID = uPickID + triangleIndex;
 `);
     builder.addFragmentCode(`
 void emitPremultipliedRGBA(vec4 color) {
@@ -163,12 +168,12 @@ gl_Position = uProjection * (uModelMatrix * vec4(vertexPosition, 1.0));
 vec3 normal = normalize((uModelMatrix * vec4(vertexNormal, 0.0)).xyz);
 vLightingFactor = abs(dot(normal, uLightDirection.xyz)) + uLightDirection.w;
 `);
-    builder.setFragmentMainFunction(FRAGMENT_MAIN_START + '\n' + this.fragmentMain);
   }
 
-  beginLayer(gl: GL, shader: ShaderProgram, renderContext: PerspectiveViewRenderContext) {
-    let {dataToDevice, lightDirection, ambientLighting, directionalLighting} = renderContext;
-    gl.uniformMatrix4fv(shader.uniform('uProjection'), false, dataToDevice);
+  beginLayer(
+      gl: GL, shader: ShaderProgram, renderContext: PerspectiveViewRenderContext) {
+    let {viewProjectionMat, lightDirection, ambientLighting, directionalLighting} = renderContext;
+    gl.uniformMatrix4fv(shader.uniform('uProjection'), false, viewProjectionMat);
     let lightVec = <vec3>this.tempLightVec;
     vec3.scale(lightVec, lightDirection, directionalLighting);
     lightVec[3] = ambientLighting;
@@ -176,36 +181,22 @@ vLightingFactor = abs(dot(normal, uLightDirection.xyz)) + uLightDirection.w;
   }
 
   setPickID(gl: GL, shader: ShaderProgram, pickID: number) {
-    gl.uniform4fv(shader.uniform('uPickID'), setVec4FromUint32(this.tempPickID, pickID));
+    gl.uniform1ui(shader.uniform('uPickID'), pickID);
   }
 
   beginObject(gl: GL, shader: ShaderProgram, objectToDataMatrix: mat4) {
     gl.uniformMatrix4fv(shader.uniform('uModelMatrix'), false, objectToDataMatrix);
   }
 
-  getShader(gl: GL, emitter: ShaderModule) {
-    const key = {
-      attributeNames: this.attributeNames,
-      attributeInfo: this.attributeInfo,
-      fragmentMain: this.fragmentMain
-    };
-    return gl.memoize.get(
-        `single_mesh/SingleMeshShaderManager:${getObjectId(emitter)}:${stableStringify(key)}`,
-        () => {
-          let builder = new ShaderBuilder(gl);
-          builder.require(emitter);
-          this.defineShader(builder);
-          return builder.build();
-        });
-  }
-
   bindVertexData(gl: GL, shader: ShaderProgram, data: VertexChunkData) {
     this.textureAccessHelper.setupTextureLayout(gl, shader, data);
-    let textureUnit = shader.textureUnit(vertexAttributeSamplerSymbol);
-    let curTextureUnit = textureUnit + gl.TEXTURE0;
-    const bindTexture = (texture: WebGLTexture | null) => {
-      gl.activeTexture(curTextureUnit++);
-      gl.bindTexture(gl.TEXTURE_2D, texture);
+    let index = 0;
+    const bindTexture = (texture: WebGLTexture|null) => {
+      const textureUnit = WebGL2RenderingContext.TEXTURE0 +
+          shader.textureUnit(vertexAttributeSamplerSymbols[index]);
+      gl.activeTexture(textureUnit);
+      gl.bindTexture(WebGL2RenderingContext.TEXTURE_2D, texture);
+      ++index;
     };
     bindTexture(data.vertexTexture);
     bindTexture(data.normalTexture);
@@ -226,9 +217,10 @@ vLightingFactor = abs(dot(normal, uLightDirection.xyz)) + uLightDirection.w;
         ++numTextures;
       }
     }
-    let curTextureUnit = shader.textureUnit(vertexAttributeSamplerSymbol) + gl.TEXTURE0;
     for (let i = 0; i < numTextures; ++i) {
-      gl.activeTexture(curTextureUnit++);
+      let curTextureUnit =
+          shader.textureUnit(vertexAttributeSamplerSymbols[i]) + WebGL2RenderingContext.TEXTURE0;
+      gl.activeTexture(curTextureUnit);
       gl.bindTexture(gl.TEXTURE_2D, null);
     }
   }
@@ -238,7 +230,7 @@ vLightingFactor = abs(dot(normal, uLightDirection.xyz)) + uLightDirection.w;
     countingBuffer.ensure(chunk.numIndices).bind(shader);
     this.bindVertexData(gl, shader, chunk.vertexData);
     this.indexBufferHelper.bind(chunk.indexBuffer, shader);
-    gl.drawArrays(gl.TRIANGLES, 0, chunk.numIndices);
+    gl.drawArrays(WebGL2RenderingContext.TRIANGLES, 0, chunk.numIndices);
   }
 
   endLayer(gl: GL, shader: ShaderProgram) {
@@ -257,16 +249,16 @@ export class VertexChunkData {
   vertexAttributeTextures: (WebGLTexture|null)[];
 
   // Emulation of buffer as texture.
-  dataWidth: number;
+  textureXBits: number;
+  textureWidth: number;
   textureHeight: number;
-  textureAccessCoefficients: TextureAccessCoefficients;
 
-  copyToGPU(gl: GL, attributeFormats: OneDimensionalTextureFormat[]) {
+  copyToGPU(gl: GL, attributeFormats: TextureFormat[]) {
     let numVertices = this.vertexPositions.length / 3;
-    compute1dTextureLayout(this, gl, /*texelsPerElement=*/1, numVertices);
-    const getBufferTexture = (data: Float32Array, format: OneDimensionalTextureFormat) => {
+    compute1dTextureLayout(this, gl, /*texelsPerElement=*/ 1, numVertices);
+    const getBufferTexture = (data: Float32Array, format: TextureFormat) => {
       let texture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.bindTexture(WebGL2RenderingContext.TEXTURE_2D, texture);
       setOneDimensionalTextureData(gl, this, format, data);
       return texture;
     };
@@ -274,7 +266,7 @@ export class VertexChunkData {
     this.normalTexture = getBufferTexture(this.vertexNormals, vertexNormalTextureFormat);
     this.vertexAttributeTextures =
         this.vertexAttributes.map((data, i) => getBufferTexture(data, attributeFormats[i]));
-    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindTexture(WebGL2RenderingContext.TEXTURE_2D, null);
   }
 
   freeGPUMemory(gl: GL) {
@@ -321,14 +313,16 @@ export class SingleMeshChunk extends Chunk {
 
 export function getAttributeTextureFormats(vertexAttributes: VertexAttributeInfo[]) {
   return vertexAttributes.map(
-      x => compute1dTextureFormat(new OneDimensionalTextureFormat(), x.dataType, x.numComponents));
+      x => computeTextureFormat(new TextureFormat(), x.dataType, x.numComponents));
 }
 
 export class SingleMeshSource extends
 (WithParameters(ChunkSource, SingleMeshSourceParametersWithInfo)) {
   attributeTextureFormats = getAttributeTextureFormats(this.info.vertexAttributes);
 
-  get info () { return this.parameters.info; }
+  get info() {
+    return this.parameters.info;
+  }
 
   getChunk(x: any) {
     return new SingleMeshChunk(this, x);
@@ -338,29 +332,40 @@ export class SingleMeshSource extends
 const SharedObjectWithSharedVisibility = withSharedVisibility(SharedObject);
 class SingleMeshLayerSharedObject extends SharedObjectWithSharedVisibility {}
 
-export class SingleMeshLayer extends PerspectiveViewRenderLayer {
-  protected shaderManager: SingleMeshShaderManager|undefined;
+export class SingleMeshLayer extends
+    PerspectiveViewRenderLayer<ThreeDimensionalRenderLayerAttachmentState> {
+  private shaderManager = new SingleMeshShaderManager(
+      pickAttributeNames(this.source.info.vertexAttributes.map(a => a.name)),
+      this.source.info.vertexAttributes);
   private shaders = new Map<ShaderModule, ShaderProgram|null>();
   private sharedObject = this.registerDisposer(new SingleMeshLayerSharedObject());
-  private fallbackFragmentMain = DEFAULT_FRAGMENT_MAIN;
+  private shaderGetter = parameterizedEmitterDependentShaderGetter(this, this.gl, {
+    memoizeKey: {t: `single_mesh/RenderLayer`, attributes: this.source.info.vertexAttributes},
+    fallbackParameters:
+        new WatchableValue<ShaderControlsParseResult>(parseShaderUiControls(DEFAULT_FRAGMENT_MAIN)),
+    parameters: this.displayState.shaderControlState.parseResult,
+    encodeParameters: p => p.source,
+    shaderError: this.displayState.shaderError,
+    defineShader:
+        (builder: ShaderBuilder, shaderParseResult: ShaderControlsParseResult) => {
+          if (shaderParseResult.errors.length !== 0) {
+            throw new Error('Invalid UI control specification');
+          }
+          addControlsToBuilder(shaderParseResult.controls, builder);
+          this.shaderManager.defineShader(builder);
+          builder.setFragmentMainFunction(shaderCodeWithLineDirective(shaderParseResult.code));
+        },
+  });
+
   protected countingBuffer = this.registerDisposer(getCountingBuffer(this.gl));
-
-  constructor(public source: SingleMeshSource, public displayState: SingleMeshDisplayState) {
+  constructor(
+      public source: SingleMeshSource, public displayState: SingleMeshDisplayState,
+      public transform: WatchableRenderLayerTransform) {
     super();
-
-    this.displayState.shaderError.value = undefined;
-    const shaderChanged = () => {
-      this.shaderManager = undefined;
-      this.displayState.shaderError.value = undefined;
-      this.disposeShaders();
-      this.redrawNeeded.dispatch();
-    };
-    this.registerDisposer(displayState.fragmentMain.changed.add(shaderChanged));
-    this.registerDisposer(displayState.attributeNames.changed.add(shaderChanged));
-    this.registerDisposer(displayState.objectToDataTransform.changed.add(() => {
-      this.redrawNeeded.dispatch();
-    }));
-    this.displayState.shaderError.value = undefined;
+    this.registerDisposer(
+        displayState.shaderControlState.parseResult.changed.add(this.redrawNeeded.dispatch));
+    this.registerDisposer(displayState.shaderControlState.changed.add(this.redrawNeeded.dispatch));
+    this.registerDisposer(transform.changed.add(this.redrawNeeded.dispatch));
     const {sharedObject} = this;
     sharedObject.visibility.add(this.visibility);
     sharedObject.RPC_TYPE_ID = SINGLE_MESH_LAYER_RPC_ID;
@@ -368,7 +373,6 @@ export class SingleMeshLayer extends PerspectiveViewRenderLayer {
       'chunkManager': source.chunkManager.rpcId,
       'source': source.addCounterpartRef(),
     });
-    this.setReady(true);
   }
 
   private disposeShaders() {
@@ -386,41 +390,6 @@ export class SingleMeshLayer extends PerspectiveViewRenderLayer {
     super.disposed();
   }
 
-  protected makeShaderManager(fragmentMain = this.displayState.fragmentMain.value) {
-    return new SingleMeshShaderManager(
-        this.displayState.attributeNames.value, this.source.info.vertexAttributes, fragmentMain);
-  }
-
-  protected getShader(emitter: ShaderModule): ShaderProgram|null {
-    let {shaders} = this;
-    let shader = shaders.get(emitter);
-    if (shader === undefined) {
-      shader = null;
-      let {shaderManager} = this;
-      if (shaderManager === undefined) {
-        shaderManager = this.shaderManager = this.makeShaderManager();
-      }
-      const fragmentMain = this.displayState.fragmentMain.value;
-      try {
-        shader = shaderManager.getShader(this.gl, emitter);
-        this.fallbackFragmentMain = fragmentMain;
-        this.displayState.shaderError.value = null;
-      } catch (shaderError) {
-        this.displayState.shaderError.value = shaderError;
-        let {fallbackFragmentMain} = this;
-        if (fallbackFragmentMain !== fragmentMain) {
-          shaderManager = this.shaderManager = this.makeShaderManager(fallbackFragmentMain);
-          try {
-            shader = shaderManager.getShader(this.gl, emitter);
-          } catch (otherShaderError) {
-          }
-        }
-      }
-      shaders.set(emitter, shader);
-    }
-    return shader;
-  }
-
   get isTransparent() {
     return this.displayState.fragmentMain.value.match(/emitRGBA|emitPremultipliedRGBA/) !== null;
   }
@@ -429,38 +398,39 @@ export class SingleMeshLayer extends PerspectiveViewRenderLayer {
     return this.source.gl;
   }
 
-  draw(renderContext: PerspectiveViewRenderContext) {
+  draw(
+      renderContext: PerspectiveViewRenderContext,
+      attachment: VisibleLayerInfo<ThreeDimensionalRenderLayerAttachmentState>) {
     if (!renderContext.emitColor && renderContext.alreadyEmittedPickID) {
       // No need for a separate pick ID pass.
       return;
     }
+    const modelMatrix = update3dRenderLayerAttachment(
+        this.transform.value, renderContext.displayDimensions, attachment);
+    if (modelMatrix === undefined) return;
     let chunk = <SingleMeshChunk|undefined>this.source.chunks.get(SINGLE_MESH_CHUNK_KEY);
     if (chunk === undefined || chunk.state !== ChunkState.GPU_MEMORY) {
       return;
     }
-    let shader = this.getShader(renderContext.emitter);
+    const shaderResult = this.shaderGetter(renderContext.emitter);
+    const {shader, parameters} = shaderResult;
     if (shader === null) {
       return;
     }
-
-    let {gl} = this;
-    let shaderManager = this.shaderManager!;
+    const {gl} = this;
+    const shaderManager = this.shaderManager!;
     shader.bind();
     shaderManager.beginLayer(gl, shader, renderContext);
-
+    setControlsInShader(gl, shader, this.displayState.shaderControlState, parameters.controls);
 
     let {pickIDs} = renderContext;
 
-    shaderManager.beginObject(gl, shader, this.displayState.objectToDataTransform.transform);
+    shaderManager.beginObject(gl, shader, modelMatrix);
     if (renderContext.emitPickID) {
       shaderManager.setPickID(gl, shader, pickIDs.register(this, chunk.numIndices / 3));
     }
     shaderManager.drawFragment(gl, shader, chunk, this.countingBuffer);
     shaderManager.endLayer(gl, shader);
-  }
-
-  drawPicking(renderContext: PerspectiveViewRenderContext) {
-    this.draw(renderContext);
   }
 
   transformPickedValue(_pickedValue: Uint64, pickedOffset: number) {
@@ -479,7 +449,7 @@ export class SingleMeshLayer extends PerspectiveViewRenderLayer {
     let vertexIndex = indices[startIndex];
 
     let values: string[] = [];
-    let attributeNames = this.displayState.attributeNames.value;
+    const {attributeNames} = this.shaderManager;
     chunk.vertexData.vertexAttributes.forEach((attributes, i) => {
       const attributeName = attributeNames[i];
       if (attributeName !== undefined) {
@@ -502,5 +472,7 @@ function getSingleMeshInfo(chunkManager: ChunkManager, parameters: SingleMeshSou
 export function getSingleMeshSource(
     chunkManager: ChunkManager, parameters: SingleMeshSourceParameters) {
   return getSingleMeshInfo(chunkManager, parameters)
-    .then(info => chunkManager.getChunkSource(SingleMeshSource, {parameters: {...parameters, info}}));
+      .then(
+          info =>
+              chunkManager.getChunkSource(SingleMeshSource, {parameters: {...parameters, info}}));
 }

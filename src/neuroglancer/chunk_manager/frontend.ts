@@ -17,13 +17,14 @@
 import {CHUNK_MANAGER_RPC_ID, CHUNK_QUEUE_MANAGER_RPC_ID, CHUNK_SOURCE_INVALIDATE_RPC_ID, ChunkSourceParametersConstructor, ChunkState} from 'neuroglancer/chunk_manager/base';
 import {SharedWatchableValue} from 'neuroglancer/shared_watchable_value';
 import {TrackableValue} from 'neuroglancer/trackable_value';
+import {CANCELED, CancellationToken} from 'neuroglancer/util/cancellation';
 import {Borrowed} from 'neuroglancer/util/disposable';
 import {stableStringify} from 'neuroglancer/util/json';
 import {StringMemoize} from 'neuroglancer/util/memoize';
 import {getObjectId} from 'neuroglancer/util/object_id';
 import {NullarySignal} from 'neuroglancer/util/signal';
 import {GL} from 'neuroglancer/webgl/context';
-import {registerRPC, registerSharedObjectOwner, RPC, SharedObject} from 'neuroglancer/worker_rpc';
+import {registerPromiseRPC, registerRPC, registerSharedObjectOwner, RPC, RPCPromise, SharedObject} from 'neuroglancer/worker_rpc';
 
 const DEBUG_CHUNK_UPDATES = false;
 
@@ -63,6 +64,11 @@ export class CapacitySpecification {
   }
 }
 
+export interface FrameNumberCounter {
+  frameNumber: number;
+  changed: NullarySignal;
+}
+
 @registerSharedObjectOwner(CHUNK_QUEUE_MANAGER_RPC_ID)
 export class ChunkQueueManager extends SharedObject {
   visibleChunksChanged = new NullarySignal();
@@ -77,11 +83,13 @@ export class ChunkQueueManager extends SharedObject {
 
   chunkUpdateDelay: number = 30;
 
-  constructor(rpc: RPC, public gl: GL, public capacities: {
-    gpuMemory: CapacitySpecification,
-    systemMemory: CapacitySpecification,
-    download: CapacitySpecification
-  }) {
+  constructor(
+      rpc: RPC, public gl: GL, public frameNumberCounter: FrameNumberCounter, public capacities: {
+        gpuMemory: CapacitySpecification,
+        systemMemory: CapacitySpecification,
+        download: CapacitySpecification,
+        compute: CapacitySpecification
+      }) {
     super();
 
     const makeCapacityCounterparts = (capacity: CapacitySpecification) => {
@@ -99,6 +107,7 @@ export class ChunkQueueManager extends SharedObject {
       'gpuMemoryCapacity': makeCapacityCounterparts(capacities.gpuMemory),
       'systemMemoryCapacity': makeCapacityCounterparts(capacities.systemMemory),
       'downloadCapacity': makeCapacityCounterparts(capacities.download),
+      'computeCapacity': makeCapacityCounterparts(capacities.compute)
     });
   }
 
@@ -121,7 +130,8 @@ export class ChunkQueueManager extends SharedObject {
     while (true) {
       if (Date.now() > deadline) {
         // No time to perform chunk update now, we will wait some more.
-        setTimeout(this.processPendingChunkUpdates.bind(this), this.chunkUpdateDelay);
+        this.chunkUpdateDeadline = null;
+        setTimeout(() => this.processPendingChunkUpdates(), this.chunkUpdateDelay);
         break;
       }
       let update = this.pendingChunkUpdates;
@@ -130,7 +140,6 @@ export class ChunkQueueManager extends SharedObject {
       }
       // FIXME: do chunk update
       let nextUpdate = this.pendingChunkUpdates = update.nextUpdate;
-      --(<any>window).numPendingChunkUpdates;
       if (nextUpdate == null) {
         this.pendingChunkUpdatesTail = null;
         break;
@@ -139,6 +148,29 @@ export class ChunkQueueManager extends SharedObject {
     if (visibleChunksChanged) {
       this.visibleChunksChanged.dispatch();
     }
+  }
+
+  private handleFetch_(source: ChunkSource, update: any) {
+    const {resolve, reject, cancellationToken} = update['promise'];
+    if ((<CancellationToken>cancellationToken).isCanceled) {
+      reject(CANCELED);
+      return;
+    }
+
+    const key = update['key'];
+    const chunk = source.chunks.get(key);
+    if (!chunk) {
+      reject(new Error(`No chunk found at ${key} for source ${source.constructor.name}`));
+      return;
+    }
+
+    const data = (<any>chunk)['data'];
+    if (!data) {
+      reject(new Error(`At ${key} for source ${source.constructor.name}: chunk has no data`));
+      return;
+    }
+
+    resolve({value: data});
   }
 
   applyChunkUpdate(update: any) {
@@ -150,7 +182,9 @@ export class ChunkQueueManager extends SharedObject {
           `${Date.now()} Chunk.update processed: ${source.rpcId} ` +
           `${update['id']} ${update['state']}`);
     }
-    if (update['id'] === undefined) {
+    if (update['promise'] !== undefined) {
+      this.handleFetch_(source, update);
+    } else if (update['id'] === undefined) {
       // Invalidate source.
       for (const chunkKey of source.chunks.keys()) {
         source.deleteChunk(chunkKey);
@@ -191,10 +225,8 @@ export class ChunkQueueManager extends SharedObject {
   }
 }
 
-(<any>window).numPendingChunkUpdates = 0;
-
-registerRPC('Chunk.update', function(x) {
-  let source: ChunkSource = this.get(x['source']);
+function updateChunk(rpc: RPC, x: any) {
+  let source: ChunkSource = rpc.get(x['source']);
   if (DEBUG_CHUNK_UPDATES) {
     console.log(
         `${Date.now()} Chunk.update received: ` +
@@ -209,9 +241,6 @@ registerRPC('Chunk.update', function(x) {
   }
 
   let pendingTail = queueManager.pendingChunkUpdatesTail;
-  if (++(<any>window).numPendingChunkUpdates > 3) {
-    //console.log(`numPendingChunkUpdates=${(<any>window).numPendingChunkUpdates}`);
-  }
   if (pendingTail == null) {
     queueManager.pendingChunkUpdates = x;
     queueManager.pendingChunkUpdatesTail = x;
@@ -220,6 +249,17 @@ registerRPC('Chunk.update', function(x) {
     pendingTail.nextUpdate = x;
     queueManager.pendingChunkUpdatesTail = x;
   }
+}
+
+registerRPC('Chunk.update', function(x) {
+  updateChunk(this, x);
+});
+
+registerPromiseRPC('Chunk.retrieve', function(x, cancellationToken): RPCPromise<any> {
+  return new Promise<{value: any}>((resolve, reject) => {
+    x['promise'] = {resolve, reject, cancellationToken};
+    updateChunk(this, x);
+  });
 });
 
 export interface ChunkSourceConstructor<Options, T extends SharedObject = ChunkSource> {
@@ -242,7 +282,7 @@ export class ChunkManager extends SharedObject {
         chunkQueueManager.rpc!, {'chunkQueueManager': chunkQueueManager.rpcId});
   }
 
-  getChunkSource<T extends SharedObject, Options>(
+  getChunkSource<T extends SharedObject&{key: any}, Options>(
       constructorFunction: ChunkSourceConstructor<Options, T>, options: any): T {
     const keyObject = constructorFunction.encodeOptions(options);
     keyObject['constructorId'] = getObjectId(constructorFunction);
@@ -250,6 +290,7 @@ export class ChunkManager extends SharedObject {
     return this.memoize.get(key, () => {
       const newSource = new constructorFunction(this, options);
       newSource.initializeCounterpart(this.rpc!, {});
+      newSource.key = keyObject;
       return newSource;
     }) as T;
   }
@@ -257,6 +298,7 @@ export class ChunkManager extends SharedObject {
 
 export class ChunkSource extends SharedObject {
   chunks = new Map<string, Chunk>();
+  key: any;
 
   /**
    * If set to true, chunk updates will be applied to this source immediately, rather than queueing
@@ -309,8 +351,8 @@ export class ChunkSource extends SharedObject {
   }
 }
 
-export function
-WithParameters<Parameters, BaseOptions, TBase extends ChunkSourceConstructor<BaseOptions, SharedObject>>(
+export function WithParameters<Parameters, BaseOptions,
+                               TBase extends ChunkSourceConstructor<BaseOptions, SharedObject>>(
     Base: TBase, parametersConstructor: ChunkSourceParametersConstructor<Parameters>) {
   type Options = BaseOptions&{parameters: Parameters};
   @registerSharedObjectOwner(parametersConstructor.RPC_ID)
@@ -326,9 +368,7 @@ WithParameters<Parameters, BaseOptions, TBase extends ChunkSourceConstructor<Bas
       super.initializeCounterpart(rpc, options);
     }
     static encodeOptions(options: Options) {
-      const encoding = super.encodeOptions(options);
-      encoding['parameters'] = options.parameters;
-      return encoding;
+      return Object.assign({parameters: options.parameters}, super.encodeOptions(options));
     }
   }
   return C;

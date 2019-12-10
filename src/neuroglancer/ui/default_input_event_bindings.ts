@@ -40,6 +40,7 @@ export function getDefaultGlobalBindings() {
 
     map.set('space', 'toggle-layout');
     map.set('shift+space', 'toggle-layout-alternative');
+    map.set('backslash', 'toggle-show-statistics');
     defaultGlobalBindings = map;
   }
   return defaultGlobalBindings;
@@ -56,6 +57,8 @@ export function getDefaultRenderedDataPanelBindings() {
           'arrowdown': 'y+',
           'comma': 'z-',
           'period': 'z+',
+          'bracketleft': 't-',
+          'bracketright': 't+',
           'keyz': 'snap',
           'control+equal': 'zoom-in',
           'control+shift+equal': 'zoom-in',
@@ -66,7 +69,6 @@ export function getDefaultRenderedDataPanelBindings() {
           'shift+arrowup': 'rotate-relative-x+',
           'shift+arrowleft': 'rotate-relative-y-',
           'shift+arrowright': 'rotate-relative-y+',
-
           'at:control+wheel': {action: 'zoom-via-wheel', preventDefault: true},
           'at:wheel': {action: 'z+1-via-wheel', preventDefault: true},
           'at:shift+wheel': {action: 'z+10-via-wheel', preventDefault: true},
@@ -74,6 +76,14 @@ export function getDefaultRenderedDataPanelBindings() {
           'at:control+mousedown0': 'annotate',
           'at:mousedown2': 'move-to-mouse-position',
           'at:control+mousedown2': 'select-annotation',
+          'at:alt+mousedown0': 'move-annotation',
+          'at:control+alt+mousedown2': 'delete-annotation',
+          'at:touchpinch': 'zoom-via-touchpinch',
+          'at:touchrotate': 'rotate-in-plane-via-touchrotate',
+          'at:touchtranslate2': 'translate-in-plane-via-touchtranslate',
+          'at:touchhold1': 'move-to-mouse-position',
+          'at:touchtap1x2': 'select',
+          'at:touchtap2x3': 'snap',
         },
         {label: 'All Data Panels'});
   }
@@ -87,10 +97,9 @@ export function getDefaultPerspectivePanelBindings() {
         {
           'at:mousedown0': {action: 'rotate-via-mouse-drag', stopPropagation: true},
           'at:shift+mousedown0': {action: 'translate-via-mouse-drag', stopPropagation: true},
+          'at:touchtranslate1': 'rotate-out-of-plane-via-touchtranslate',
         },
-        {
-          parents: [[getDefaultRenderedDataPanelBindings(), Number.NEGATIVE_INFINITY]]
-        });
+        {parents: [[getDefaultRenderedDataPanelBindings(), Number.NEGATIVE_INFINITY]]});
   }
   return defaultPerspectivePanelBindings;
 }
@@ -102,10 +111,9 @@ export function getDefaultSliceViewPanelBindings() {
         {
           'at:mousedown0': {action: 'translate-via-mouse-drag', stopPropagation: true},
           'at:shift+mousedown0': {action: 'rotate-via-mouse-drag', stopPropagation: true},
+          'at:touchtranslate1': 'translate-z-via-touchtranslate',
         },
-        {
-          parents: [[getDefaultRenderedDataPanelBindings(), Number.NEGATIVE_INFINITY]]
-        });
+        {parents: [[getDefaultRenderedDataPanelBindings(), Number.NEGATIVE_INFINITY]]});
   }
   return defaultSliceViewPanelBindings;
 }

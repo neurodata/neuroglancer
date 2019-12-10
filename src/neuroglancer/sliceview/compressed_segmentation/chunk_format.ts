@@ -24,26 +24,27 @@ import {RefCounted} from 'neuroglancer/util/disposable';
 import {vec3, vec3Key} from 'neuroglancer/util/geom';
 import {Uint64} from 'neuroglancer/util/uint64';
 import {GL} from 'neuroglancer/webgl/context';
-import {compute1dTextureFormat, compute1dTextureLayout, OneDimensionalTextureAccessHelper, OneDimensionalTextureFormat, setOneDimensionalTextureData, TextureAccessCoefficients} from 'neuroglancer/webgl/one_dimensional_texture_access';
-import {ShaderBuilder, ShaderProgram} from 'neuroglancer/webgl/shader';
-import {getShaderType, glsl_getFortranOrderIndexFromNormalized, glsl_uint64, glsl_uintleToFloat, glsl_unnormalizeUint8} from 'neuroglancer/webgl/shader_lib';
+import {ShaderBuilder, ShaderProgram, ShaderSamplerType} from 'neuroglancer/webgl/shader';
+import {getShaderType, glsl_getFortranOrderIndex, glsl_uint32, glsl_uint64} from 'neuroglancer/webgl/shader_lib';
+import {compute1dTextureLayout, computeTextureFormat, OneDimensionalTextureAccessHelper, setOneDimensionalTextureData, TextureFormat} from 'neuroglancer/webgl/texture_access';
 
 class TextureLayout extends RefCounted {
-  dataWidth: number;
+  textureXBits: number;
+  textureWidth: number;
   textureHeight: number;
-  textureAccessCoefficients: TextureAccessCoefficients;
   subchunkGridSize: vec3;
 
-  constructor(gl: GL, public chunkDataSize: vec3, public subchunkSize: vec3, dataLength: number) {
+  constructor(
+      gl: GL, public chunkDataSize: Uint32Array, public subchunkSize: vec3, dataLength: number) {
     super();
-    compute1dTextureLayout(this, gl, /*texelsPerElement=*/1, dataLength);
+    compute1dTextureLayout(this, gl, /*texelsPerElement=*/ 1, dataLength);
     let subchunkGridSize = this.subchunkGridSize = vec3.create();
     for (let i = 0; i < 3; ++i) {
       subchunkGridSize[i] = Math.ceil(chunkDataSize[i] / subchunkSize[i]);
     }
   }
 
-  static get(gl: GL, chunkDataSize: vec3, subchunkSize: vec3, dataLength: number) {
+  static get(gl: GL, chunkDataSize: Uint32Array, subchunkSize: vec3, dataLength: number) {
     return gl.memoize.get(
         `sliceview.CompressedSegmentationTextureLayout:${vec3Key(chunkDataSize)},` +
             `${vec3Key(subchunkSize)},${dataLength}`,
@@ -51,9 +52,12 @@ class TextureLayout extends RefCounted {
   }
 }
 
-const textureFormat = compute1dTextureFormat(new OneDimensionalTextureFormat(), DataType.UINT32);
+const textureFormat = computeTextureFormat(new TextureFormat(), DataType.UINT32);
+let tempStridesUniform = new Uint32Array(4 * 4);
 
 export class ChunkFormat extends SingleTextureChunkFormat<TextureLayout> {
+  // numChannels is the number of channels in the compressed segmentation format, which is
+  // independent of the channel dimensions presented to the user.
   static get(gl: GL, dataType: DataType, subchunkSize: vec3, numChannels: number) {
     let shaderKey = `sliceview.CompressedSegmentationChunkFormat:${dataType}:${numChannels}`;
     let cacheKey = `${shaderKey}:${vec3Key(subchunkSize)}`;
@@ -63,6 +67,10 @@ export class ChunkFormat extends SingleTextureChunkFormat<TextureLayout> {
 
   private textureAccessHelper: OneDimensionalTextureAccessHelper;
 
+  get shaderSamplerType(): ShaderSamplerType {
+    return 'usampler2D';
+  }
+
   constructor(
       public dataType: DataType, public subchunkSize: vec3, public numChannels: number,
       key: string) {
@@ -70,77 +78,91 @@ export class ChunkFormat extends SingleTextureChunkFormat<TextureLayout> {
     this.textureAccessHelper = new OneDimensionalTextureAccessHelper('chunkData');
   }
 
-  defineShader(builder: ShaderBuilder) {
-    super.defineShader(builder);
+  defineShader(builder: ShaderBuilder, numChannelDimensions: number) {
+    super.defineShader(builder, numChannelDimensions);
+    const stridesLength = 4 * (4 + numChannelDimensions);
+    if (tempStridesUniform.length < stridesLength) {
+      tempStridesUniform = new Uint32Array(stridesLength);
+    }
     let {textureAccessHelper} = this;
     textureAccessHelper.defineShader(builder);
     let local = (x: string) => 'compressedSegmentationChunkFormat_' + x;
-    builder.addUniform('highp vec3', 'uSubchunkGridSize');
-    builder.addUniform('highp vec3', 'uSubchunkSize');
-    builder.addFragmentCode(glsl_getFortranOrderIndexFromNormalized);
+    builder.addUniform('highp ivec3', 'uSubchunkGridSize');
+    builder.addUniform('highp ivec3', 'uSubchunkSize');
+    builder.addUniform('highp ivec4', 'uVolumeChunkStrides', 4 + numChannelDimensions);
+    builder.addFragmentCode(glsl_getFortranOrderIndex);
     const {dataType} = this;
     const glslType = getShaderType(dataType);
 
     if (dataType === DataType.UINT64) {
       builder.addFragmentCode(glsl_uint64);
+    } else {
+      builder.addFragmentCode(glsl_uint32);
     }
     builder.addFragmentCode(textureAccessHelper.getAccessor(
-        local('readTextureValue'), 'uVolumeChunkSampler', DataType.UINT32));
-    builder.addFragmentCode(glsl_unnormalizeUint8);
-    builder.addFragmentCode(glsl_uintleToFloat);
-
+        local('readTextureValue'), 'uVolumeChunkSampler', DataType.UINT32, 1));
     let fragmentCode = `
-float ${local('getChannelOffset')}(int channelIndex) {
+uint ${local('getChannelOffset')}(int channelIndex) {
   if (channelIndex == 0) {
-    return ${this.numChannels}.0;
+    return ${this.numChannels}u;
   }
-  vec4 v = ${local('readTextureValue')}(float(channelIndex)).value;
-  return uintleToFloat(v.xyz);
+  return ${local('readTextureValue')}(uint(channelIndex)).value;
 }
-${glslType} getDataValue (int channelIndex) {
-  vec3 chunkPosition = getPositionWithinChunk();
+${glslType} getDataValue (`;
+    if (numChannelDimensions === 0) {
+      // Add dummy channel parameter for backward compatibility.
+      fragmentCode += `highp int ignoredChannel`;
+    }
+    for (let channelDim = 0; channelDim < numChannelDimensions; ++channelDim) {
+      if (channelDim !== 0) fragmentCode += `, `;
+      fragmentCode += `highp int channelIndex${channelDim}`;
+    }
+    fragmentCode += `) {
+  highp ivec3 p = getPositionWithinChunk();
+  highp ivec4 chunkPositionFull = uVolumeChunkStrides[0] +
+                     + p.x * uVolumeChunkStrides[1]
+                     + p.y * uVolumeChunkStrides[2]
+                     + p.z * uVolumeChunkStrides[3];
+`;
+    for (let channelDim = 0; channelDim < numChannelDimensions; ++channelDim) {
+      fragmentCode += `
+  chunkPositionFull += channelIndex${channelDim} * uVolumeChunkStrides[${4 + channelDim}];
+`;
+    }
+    
+      fragmentCode += `
+  highp ivec3 chunkPosition = chunkPositionFull.xyz;
 
   // TODO: maybe premultiply this and store as uniform.
-  vec3 subchunkGridPosition = floor(chunkPosition / uSubchunkSize);
-  float subchunkGridOffset = getFortranOrderIndex(subchunkGridPosition, uSubchunkGridSize);
+  ivec3 subchunkGridPosition = chunkPosition / uSubchunkSize;
+  int subchunkGridOffset = getFortranOrderIndex(subchunkGridPosition, uSubchunkGridSize);
 
-  float channelOffset = ${local('getChannelOffset')}(channelIndex);
+  int channelOffset = int(${local('getChannelOffset')}(chunkPositionFull[3]));
 
   // TODO: Maybe just combine this offset into subchunkGridStrides.
-  float subchunkHeaderOffset = subchunkGridOffset * 2.0 + channelOffset;
+  int subchunkHeaderOffset = subchunkGridOffset * 2 + channelOffset;
 
-  vec4 subchunkHeader0 = ${local('readTextureValue')}(subchunkHeaderOffset).value;
-  vec4 subchunkHeader1 = ${local('readTextureValue')}(subchunkHeaderOffset + 1.0).value;
-
-  float outputValueOffset = uintleToFloat(subchunkHeader0.xyz) + channelOffset;
-  float encodingBits = unnormalizeUint8(subchunkHeader0[3]);
-  if (encodingBits > 0.0) {
-    vec3 subchunkPosition = floor(min(chunkPosition - subchunkGridPosition * uSubchunkSize, uSubchunkSize - 1.0));
-    float subchunkOffset = getFortranOrderIndex(subchunkPosition, uSubchunkSize);
-    highp float encodedValueBaseOffset = uintleToFloat(subchunkHeader1.xyz) + channelOffset;
-    highp float encodedValueOffset = floor(encodedValueBaseOffset + subchunkOffset * encodingBits / 32.0);
-    vec4 encodedValue = ${local('readTextureValue')}(encodedValueOffset).value;
-    float wordOffset = mod(subchunkOffset * encodingBits, 32.0);
-    // If the value is in the first byte, then 0 <= wordOffset < 8.
-    // We need to mod by 2**encodedBits
-    float wordShifter = pow(2.0, -wordOffset);
-    float encodedValueMod = pow(2.0, encodingBits);
-    float encodedValueShifted;
-    if (wordOffset < 16.0) {
-      encodedValueShifted = dot(unnormalizeUint8(encodedValue.xy), vec2(1.0, 256.0));
-    } else {
-      encodedValueShifted = dot(unnormalizeUint8(encodedValue.zw), vec2(256.0 * 256.0, 256.0 * 256.0 * 256.0));
-    }
-    encodedValueShifted = floor(encodedValueShifted * wordShifter);
-    float decodedValue = mod(encodedValueShifted, encodedValueMod);
-    outputValueOffset += decodedValue * ${this.dataType === DataType.UINT64 ? '2.0' : '1.0'};
+  highp uint subchunkHeader0 = ${local('readTextureValue')}(uint(subchunkHeaderOffset)).value;
+  highp uint subchunkHeader1 = ${local('readTextureValue')}(uint(subchunkHeaderOffset + 1)).value;
+  highp uint outputValueOffset = (subchunkHeader0 & 0xFFFFFFu) + uint(channelOffset);
+  highp uint encodingBits = subchunkHeader0 >> 24u;
+  if (encodingBits > 0u) {
+    ivec3 subchunkPosition = chunkPosition - subchunkGridPosition * uSubchunkSize;
+    int subchunkOffset = getFortranOrderIndex(subchunkPosition, uSubchunkSize);
+    uint encodedValueBaseOffset = subchunkHeader1 + uint(channelOffset);
+    uint encodedValueOffset = encodedValueBaseOffset + uint(subchunkOffset) * encodingBits / 32u;
+    uint encodedValue = ${local('readTextureValue')}(encodedValueOffset).value;
+    uint wordOffset = uint(subchunkOffset) * encodingBits % 32u;
+    uint encodedValueShifted = encodedValue >> wordOffset;
+    uint decodedValue = encodedValueShifted - (encodedValueShifted >> encodingBits << encodingBits);
+    outputValueOffset += decodedValue * ${this.dataType === DataType.UINT64 ? '2u' : '1u'};
   }
   ${glslType} result;
 `;
     if (dataType === DataType.UINT64) {
       fragmentCode += `
-  result.low = ${local('readTextureValue')}(outputValueOffset).value;
-  result.high = ${local('readTextureValue')}(outputValueOffset+1.0).value;
+  result.value[0] = ${local('readTextureValue')}(outputValueOffset).value;
+  result.value[1] = ${local('readTextureValue')}(outputValueOffset+1u).value;
 `;
     } else {
       fragmentCode += `
@@ -156,9 +178,33 @@ ${glslType} getDataValue (int channelIndex) {
 
   /**
    * Called each time textureLayout changes while drawing chunks.
+   *
+   * @param channelDimensions The user-specified channel dimensions, independent of the compressed
+   * segmentation channels.
    */
-  setupTextureLayout(gl: GL, shader: ShaderProgram, textureLayout: TextureLayout) {
-    gl.uniform3fv(shader.uniform('uSubchunkGridSize'), textureLayout.subchunkGridSize);
+  setupTextureLayout(
+      gl: GL, shader: ShaderProgram, textureLayout: TextureLayout, fixedChunkPosition: Uint32Array,
+      chunkDisplaySubspaceDimensions: readonly number[], channelDimensions: readonly number[]) {
+    const {subchunkGridSize} = textureLayout;
+    gl.uniform3i(
+        shader.uniform('uSubchunkGridSize'), subchunkGridSize[0], subchunkGridSize[1],
+        subchunkGridSize[2]);
+    const stridesUniform = tempStridesUniform;
+    const numChannelDimensions = channelDimensions.length;
+    stridesUniform.fill(0);
+    for (let i = 0; i < 3; ++i) {
+      stridesUniform[i] = fixedChunkPosition[i];
+      const chunkDim = chunkDisplaySubspaceDimensions[i];
+      if (chunkDim === -1) continue;
+      stridesUniform[4 * (i + 1) + chunkDim] = 1;
+    }
+    for (let channelDim = 0; channelDim < numChannelDimensions; ++channelDim) {
+      const chunkDim = channelDimensions[channelDim];
+      if (chunkDim === -1) continue;
+      stridesUniform[4 * (4 + channelDim) + chunkDim] = 1;
+    }
+    gl.uniform4iv(
+        shader.uniform('uVolumeChunkStrides'), stridesUniform, 0, (numChannelDimensions + 4) * 4);
     this.textureAccessHelper.setupTextureLayout(gl, shader, textureLayout);
   }
 
@@ -166,13 +212,15 @@ ${glslType} getDataValue (int channelIndex) {
     setOneDimensionalTextureData(gl, textureLayout, textureFormat, data);
   }
 
-  getTextureLayout(gl: GL, chunkDataSize: vec3, dataLength: number) {
+  getTextureLayout(gl: GL, chunkDataSize: Uint32Array, dataLength: number) {
     return TextureLayout.get(gl, chunkDataSize, this.subchunkSize, dataLength);
   }
 
   beginSource(gl: GL, shader: ShaderProgram) {
     super.beginSource(gl, shader);
-    gl.uniform3fv(shader.uniform('uSubchunkSize'), this.subchunkSize);
+    const {subchunkSize} = this;
+    gl.uniform3i(
+        shader.uniform('uSubchunkSize'), subchunkSize[0], subchunkSize[1], subchunkSize[2]);
   }
 }
 
@@ -188,19 +236,19 @@ export class CompressedSegmentationVolumeChunk extends
     chunkFormat.setTextureData(gl, textureLayout, data);
   }
 
-  getChannelValueAt(dataPosition: vec3, channel: number): Uint64|number {
+  getValueAt(dataPosition: Uint32Array): Uint64|number {
     let {chunkDataSize, chunkFormat} = this;
     let {data} = this;
-    let offset = data[channel];
+    let offset = data[dataPosition[3] || 0];
     if (chunkFormat.dataType === DataType.UINT64) {
       let result = new Uint64();
       readSingleChannelValueUint64(
-          result, data, /*baseOffset=*/offset, chunkDataSize, chunkFormat.subchunkSize,
+          result, data, /*baseOffset=*/ offset, chunkDataSize, chunkFormat.subchunkSize,
           dataPosition);
       return result;
     } else {
       return readSingleChannelValueUint32(
-          data, /*baseOffset=*/offset, chunkDataSize, chunkFormat.subchunkSize, dataPosition);
+          data, /*baseOffset=*/ offset, chunkDataSize, chunkFormat.subchunkSize, dataPosition);
     }
   }
 }
@@ -216,7 +264,7 @@ export class CompressedSegmentationChunkFormatHandler extends RefCounted impleme
       throw new Error(`Unsupported compressed segmentation data type: ${DataType[dataType]}`);
     }
     this.chunkFormat = this.registerDisposer(ChunkFormat.get(
-        gl, spec.dataType, spec.compressedSegmentationBlockSize!, spec.numChannels));
+        gl, spec.dataType, spec.compressedSegmentationBlockSize!, spec.chunkDataSize[3] || 1));
   }
 
   getChunk(source: VolumeChunkSource, x: any) {

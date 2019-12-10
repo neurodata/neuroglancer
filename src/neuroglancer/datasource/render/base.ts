@@ -15,7 +15,7 @@
  */
 
 export class RenderBaseSourceParameters {
-  baseUrls: string[];
+  baseUrl: string;
   owner: string;
   project: string;
   stack: string;
@@ -35,11 +35,4 @@ export class TileChunkSourceParameters extends RenderSourceParameters {
   encoding: string;
 
   static RPC_ID = 'render/TileChunkSource';
-}
-
-export class PointMatchChunkSourceParameters extends RenderSourceParameters {
-  matchCollection: string;
-  zoffset: number;
-
-  static RPC_ID = 'render/PointMatchSource';
 }
