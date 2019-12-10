@@ -23,11 +23,13 @@ import {getAnnotationTypeRenderHandler} from 'neuroglancer/annotation/type_handl
 import {DisplayContext, RenderedPanel} from 'neuroglancer/display_context';
 import {NavigationState} from 'neuroglancer/navigation_state';
 import {PickIDManager} from 'neuroglancer/object_picking';
+import {layerToDisplayCoordinates, displayToLayerCoordinates} from 'neuroglancer/render_coordinate_transform';
 import {UserLayerWithAnnotations} from 'neuroglancer/ui/annotations';
 import {AutomaticallyFocusedElement} from 'neuroglancer/util/automatic_focus';
 import {ActionEvent, EventActionMap, registerActionListener} from 'neuroglancer/util/event_action_map';
 import {AXES_NAMES, kAxes, mat4, vec2, vec3} from 'neuroglancer/util/geom';
 import {KeyboardEventBinder} from 'neuroglancer/util/keyboard_bindings';
+import * as matrix from 'neuroglancer/util/matrix';
 import {MouseEventBinder} from 'neuroglancer/util/mouse_bindings';
 import {startRelativeMouseDrag} from 'neuroglancer/util/mouse_drag';
 import {TouchEventBinder, TouchPinchInfo, TouchTranslateInfo} from 'neuroglancer/util/touch_bindings';
@@ -57,6 +59,68 @@ export class PickRequest {
 }
 
 const pickRequestInterval = 30;
+
+export const pickRadius = 12;
+export const pickDiameter = 1 + pickRadius * 2;
+
+/**
+ * Sequence of offsets into C order (pickDiamater, pickDiamater) array in order of increasing
+ * distance from center.
+ */
+export const pickOffsetSequence = (() => {
+  const maxDist2 = pickRadius ** 2;
+  const getDist2 = (x: number, y: number) => (x - pickRadius) ** 2 + (y - pickRadius) ** 2;
+
+  let offsets = new Uint32Array(pickDiameter * pickDiameter);
+  let count = 0;
+  for (let x = 0; x < pickDiameter; ++x) {
+    for (let y = 0; y < pickDiameter; ++y) {
+      if (getDist2(x, y) > maxDist2) continue;
+      offsets[count++] = y * pickDiameter + x;
+    }
+  }
+  offsets = offsets.subarray(0, count);
+  offsets.sort((a, b) => {
+    const x1 = a % pickDiameter;
+    const y1 = (a - x1) / pickDiameter;
+    const x2 = b % pickDiameter;
+    const y2 = (b - x2) / pickDiameter;
+    return getDist2(x1, y1) - getDist2(x2, y2);
+  });
+
+  return offsets;
+})();
+
+/**
+ * Sets array elements to 0 that would be outside the viewport.
+ *
+ * @param buffer Array view, which contains a C order (pickDiameter, pickDiameter) array.
+ * @param baseOffset Offset into `buffer` corresponding to (0, 0).
+ * @param stride Stride between consecutive elements of the array.
+ * @param glWindowX Center x position, must be integer.
+ * @param glWindowY Center y position, must be integer.
+ * @param viewportWidth Width of viewport in pixels.
+ * @param viewportHeight Width of viewport in pixels.
+ */
+export function clearOutOfBoundsPickData(
+    buffer: Float32Array, baseOffset: number, stride: number, glWindowX: number, glWindowY: number,
+    viewportWidth: number, viewportHeight: number) {
+  const startX = glWindowX - pickRadius;
+  const startY = glWindowY - pickRadius;
+  if (startX >= 0 && startY >= 0 && startX + pickDiameter <= viewportWidth &&
+      startY + pickDiameter <= viewportHeight) {
+    return;
+  }
+  for (let relativeY = 0; relativeY < pickDiameter; ++relativeY) {
+    for (let relativeX = 0; relativeX < pickDiameter; ++relativeX) {
+      const x = startX + relativeX;
+      const y = startY + relativeY;
+      if (x < 0 || y < 0 || x >= viewportWidth || y >= viewportHeight) {
+        buffer[baseOffset + (y * pickDiameter + x) * stride] = 0;
+      }
+    }
+  }
+}
 
 export abstract class RenderedDataPanel extends RenderedPanel {
   /**
@@ -91,7 +155,7 @@ export abstract class RenderedDataPanel extends RenderedPanel {
 
   pickingData = [new FramePickingData(), new FramePickingData()];
   pickRequests = [new PickRequest(), new PickRequest()];
-  pickBufferContents: Float32Array = new Float32Array(8);
+  pickBufferContents: Float32Array = new Float32Array(2 * 4 * pickDiameter * pickDiameter);
 
   /**
    * Reads pick data for the current mouse position into the currently-bound pixel pack buffer.
@@ -134,7 +198,8 @@ export abstract class RenderedDataPanel extends RenderedPanel {
       buffer = pickRequest.buffer = gl.createBuffer();
       gl.bindBuffer(WebGL2RenderingContext.PIXEL_PACK_BUFFER, buffer);
       gl.bufferData(
-          WebGL2RenderingContext.PIXEL_PACK_BUFFER, 32, WebGL2RenderingContext.STREAM_READ);
+          WebGL2RenderingContext.PIXEL_PACK_BUFFER, 2 * 4 * 4 * pickDiameter * pickDiameter,
+          WebGL2RenderingContext.STREAM_READ);
     } else {
       gl.bindBuffer(WebGL2RenderingContext.PIXEL_PACK_BUFFER, buffer);
     }
@@ -432,11 +497,9 @@ export abstract class RenderedDataPanel extends RenderedPanel {
     }
 
     registerActionListener(element, 'move-to-mouse-position', () => {
-      let {mouseState} = this.viewer;
+      const {mouseState} = this.viewer;
       if (mouseState.updateUnconditionally()) {
-        let position = this.navigationState.pose.position;
-        vec3.copy(position.spatialCoordinates, mouseState.position);
-        position.changed.dispatch();
+        this.navigationState.position.value = mouseState.position;
       }
     });
 
@@ -455,7 +518,9 @@ export abstract class RenderedDataPanel extends RenderedPanel {
         userLayer.tabs.value = 'annotations';
         (<UserLayerWithAnnotations>userLayer).selectedAnnotation.value = {
           id: state.id,
-          partIndex: state.partIndex
+          partIndex: state.partIndex,
+          sourceIndex: state.annotationLayer.sourceIndex,
+          subsource: state.annotationLayer.subsourceId,
         };
       }
     });
@@ -472,18 +537,36 @@ export abstract class RenderedDataPanel extends RenderedPanel {
 
           const handler = getAnnotationTypeRenderHandler(ann.type);
           const pickedOffset = mouseState.pickedOffset;
-          let repPoint = handler.getRepresentativePoint(
-              annotationLayer.objectToGlobal, ann, mouseState.pickedOffset);
+          const {chunkTransform: {value: chunkTransform}} = annotationLayer;
+          if (chunkTransform.error !== undefined) return;
+          const {layerRank} = chunkTransform;
+          const repPoint = new Float32Array(layerRank);
+          handler.getRepresentativePoint(repPoint, ann, mouseState.pickedOffset);
           let totDeltaVec = vec2.set(vec2.create(), 0, 0);
           if (mouseState.updateUnconditionally()) {
             startRelativeMouseDrag(
                 e.detail,
                 (_event, deltaX, deltaY) => {
                   vec2.add(totDeltaVec, totDeltaVec, [deltaX, deltaY]);
-                  let newRepPt = this.translateDataPointByViewportPixels(
-                      vec3.create(), repPoint, totDeltaVec[0], totDeltaVec[1]);
-                  let newAnnotation = handler.updateViaRepresentativePoint(
-                      ann, newRepPt, annotationLayer.globalToObject, pickedOffset);
+                  const layerPoint = new Float32Array(layerRank);
+                  matrix.transformPoint(
+                      layerPoint, chunkTransform.chunkToLayerTransform, layerRank + 1, repPoint,
+                      layerRank);
+                  const renderPt = tempVec3;
+                  const {dimensionIndices: renderDimensionIndices} =
+                    this.navigationState.pose.displayDimensions.value;
+                  layerToDisplayCoordinates(
+                      renderPt, layerPoint, chunkTransform.modelTransform, renderDimensionIndices);
+                  this.translateDataPointByViewportPixels(
+                      renderPt, renderPt, totDeltaVec[0], totDeltaVec[1]);
+                  displayToLayerCoordinates(
+                      layerPoint, renderPt, chunkTransform.modelTransform, renderDimensionIndices);
+                  const newPoint = new Float32Array(layerRank);
+                  matrix.transformPoint(
+                      newPoint, chunkTransform.layerToChunkTransform, layerRank + 1, layerPoint,
+                      layerRank);
+                  let newAnnotation =
+                      handler.updateViaRepresentativePoint(ann, newPoint, pickedOffset);
                   annotationLayer.source.update(annotationRef, newAnnotation);
                 },
                 (_event) => {

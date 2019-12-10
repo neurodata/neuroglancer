@@ -19,6 +19,7 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const ExtractTextPlugin = require('extract-text-webpack-plugin');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const webpack = require('webpack');
 const fs = require('fs');
 const AliasPlugin = require('./webpack_alias_plugin');
@@ -79,28 +80,19 @@ const DEFAULT_DATA_SOURCES = exports.DEFAULT_DATA_SOURCES = [
       'neuroglancer/async_computation/decode_gzip',
     ],
   },
-  'neuroglancer/datasource/computed',
-  'neuroglancer/datasource/computed/example',
-  'neuroglancer/datasource/computed/tensorflow',
+  // 'neuroglancer/datasource/computed',
+  // 'neuroglancer/datasource/computed/example',
+  // 'neuroglancer/datasource/computed/tensorflow',
   {
     source: 'neuroglancer/datasource/vtk',
-    register: null,
     asyncComputation: [
       'neuroglancer/async_computation/vtk_mesh',
-    ],
-  },
-  {
-    source: 'neuroglancer/datasource/csv',
-    register: null,
-    asyncComputation: [
-      'neuroglancer/async_computation/csv_vertex_attributes',
     ],
   },
 ];
 
 const DEFAULT_SUPPORTED_LAYERS = exports.DEFAULT_SUPPORTED_LAYERS = [
   'neuroglancer/image_user_layer',
-  'neuroglancer/vector_graphics_user_layer',
   'neuroglancer/segmentation_user_layer',
   'neuroglancer/single_mesh_user_layer',
   'neuroglancer/annotation/user_layer',
@@ -166,6 +158,24 @@ function getBaseConfig(options) {
   options = options || {};
   let {loaderEntry: tsLoaderEntry, extraResolveAliases} = getTypescriptLoaderEntry(options);
   console.log(extraResolveAliases);
+
+  const cssLoaderEntry = options.noOutput ?
+    {test: /\.css$/, loader: 'style-loader!css-loader'} :
+    {
+      test: /\.css$/,
+      loader: [
+        {
+          loader: MiniCssExtractPlugin.loader,
+          options: {
+            hmr: process.env.NODE_ENV === 'development',
+          }
+        },
+        {
+          loader: 'css-loader',
+        },
+      ],
+    }
+
   let aliasMappings = Object.assign(
       {
         'neuroglancer-testdata': resolveReal(__dirname, '../testdata'),
@@ -207,12 +217,18 @@ function getBaseConfig(options) {
           resolve: {},
         },
         {
-          test: /\.json$/i, type: 'json',
+          test: /\.json$/i,
+          type: 'json',
         }
       ],
       rules: [
         tsLoaderEntry,
-        {test: /\.css$/, loader: 'style-loader!css-loader'},
+        cssLoaderEntry,
+        {
+          test: /\.svg$/,
+          loader: require.resolve('svg-inline-loader'),
+            options: {removeSVGTagAttrs: false, removeTags: true}
+        },
         {
           test: /\.glsl$/,
           loader: [
@@ -372,6 +388,10 @@ function getViewerConfig(options) {
           target: 'web',
           plugins: [
             htmlPlugin,
+            new MiniCssExtractPlugin({
+              filename: '[name].css',
+              chunkFilename: '[id].css'
+            }),
             new webpack.DefinePlugin(Object.assign({}, defaultDefines, extraDefines)),
             ...extraFrontendPlugins,
             ...commonPlugins,
@@ -434,6 +454,10 @@ function getViewerConfigFromEnv(options, env) {
   }
   if (envParts.has('python')) {
     options = makePythonClientOptions(options);
+  }
+  if (envParts.has('module')) {
+    const srcDir = resolveReal(__dirname, '../src');
+    options.frontendModules = [resolveReal(srcDir, 'main_module.ts')];
   }
   return getViewerConfig(options);
 }

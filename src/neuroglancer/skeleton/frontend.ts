@@ -16,26 +16,29 @@
 
 import {ChunkState} from 'neuroglancer/chunk_manager/base';
 import {Chunk, ChunkManager, ChunkSource} from 'neuroglancer/chunk_manager/frontend';
-import {RenderLayer} from 'neuroglancer/layer';
-import {VoxelSize} from 'neuroglancer/navigation_state';
+import {VisibleLayerInfo} from 'neuroglancer/layer';
 import {PerspectiveViewRenderContext, PerspectiveViewRenderLayer} from 'neuroglancer/perspective_view/render_layer';
+import {RenderLayer, ThreeDimensionalRenderLayerAttachmentState, update3dRenderLayerAttachment} from 'neuroglancer/renderlayer';
 import {forEachVisibleSegment, getObjectKey} from 'neuroglancer/segmentation_display_state/base';
 import {getObjectColor, registerRedrawWhenSegmentationDisplayState3DChanged, SegmentationDisplayState3D, SegmentationLayerSharedObject} from 'neuroglancer/segmentation_display_state/frontend';
 import {SKELETON_LAYER_RPC_ID, VertexAttributeInfo} from 'neuroglancer/skeleton/base';
-import {SliceViewPanelRenderContext, SliceViewPanelRenderLayer} from 'neuroglancer/sliceview/panel';
-import {TrackableValue, WatchableValue, WatchableValueInterface} from 'neuroglancer/trackable_value';
+import {SliceViewPanelRenderContext, SliceViewPanelRenderLayer} from 'neuroglancer/sliceview/renderlayer';
+import {TrackableValue, WatchableValue} from 'neuroglancer/trackable_value';
 import {DataType} from 'neuroglancer/util/data_type';
 import {Borrowed, RefCounted} from 'neuroglancer/util/disposable';
 import {mat4, vec3} from 'neuroglancer/util/geom';
-import {verifyString} from 'neuroglancer/util/json';
+import {verifyFinitePositiveFloat, verifyString} from 'neuroglancer/util/json';
 import {NullarySignal} from 'neuroglancer/util/signal';
+import {CompoundTrackable, Trackable} from 'neuroglancer/util/trackable';
+import {TrackableEnum} from 'neuroglancer/util/trackable_enum';
 import {Buffer} from 'neuroglancer/webgl/buffer';
 import {CircleShader} from 'neuroglancer/webgl/circles';
-import glsl_COLORMAPS from 'neuroglancer/webgl/colormaps.glsl';
+import {glsl_COLORMAPS} from 'neuroglancer/webgl/colormaps';
 import {GL} from 'neuroglancer/webgl/context';
-import {parameterizedEmitterDependentShaderGetter, WatchableShaderError} from 'neuroglancer/webgl/dynamic_shader';
+import {parameterizedEmitterDependentShaderGetter, shaderCodeWithLineDirective, WatchableShaderError} from 'neuroglancer/webgl/dynamic_shader';
 import {LineShader} from 'neuroglancer/webgl/lines';
 import {ShaderBuilder, ShaderProgram, ShaderSamplerType} from 'neuroglancer/webgl/shader';
+import {addControlsToBuilder, parseShaderUiControls, setControlsInShader, ShaderControlsParseResult, ShaderControlState} from 'neuroglancer/webgl/shader_ui_controls';
 import {compute1dTextureLayout, computeTextureFormat, getSamplerPrefixForDataType, OneDimensionalTextureAccessHelper, setOneDimensionalTextureData, TextureFormat} from 'neuroglancer/webgl/texture_access';
 
 const tempMat2 = mat4.create();
@@ -44,8 +47,6 @@ const DEFAULT_FRAGMENT_MAIN = `void main() {
   emitDefault();
 }
 `;
-
-export const FRAGMENT_MAIN_START = '//NEUROGLANCER_SKELETON_LAYER_FRAGMENT_MAIN_START';
 
 export type TrackableFragmentMain = TrackableValue<string>;
 
@@ -78,16 +79,19 @@ class RenderHelper extends RefCounted {
     builder.addUniform('highp uint', 'uPickID');
   }
 
-  edgeShaderGetter = parameterizedEmitterDependentShaderGetter(
-      this, this.gl,
-      {type: 'skeleton/SkeletonShaderManager/edge', vertexAttributes: this.vertexAttributes},
-      this.base.fallbackFragmentMain, this.base.displayState.fragmentMain,
-      this.base.displayState.shaderError, (builder: ShaderBuilder, fragmentMain: string) => {
-        this.defineAttributeAccess(builder);
-        this.lineShader.defineShader(builder);
-        builder.addAttribute('highp uvec2', 'aVertexIndex');
-        this.defineCommonShader(builder);
-        let vertexMain = `
+  edgeShaderGetter = parameterizedEmitterDependentShaderGetter(this, this.gl, {
+    memoizeKey:
+        {type: 'skeleton/SkeletonShaderManager/edge', vertexAttributes: this.vertexAttributes},
+    fallbackParameters: this.base.fallbackShaderParameters,
+    parameters: this.base.displayState.skeletonRenderingOptions.shaderControlState.parseResult,
+    shaderError: this.base.displayState.shaderError,
+    defineShader:
+        (builder: ShaderBuilder, shaderParseResult: ShaderControlsParseResult) => {
+          this.defineAttributeAccess(builder);
+          this.lineShader.defineShader(builder);
+          builder.addAttribute('highp uvec2', 'aVertexIndex');
+          this.defineCommonShader(builder);
+          let vertexMain = `
 highp vec3 vertexA = readAttribute0(aVertexIndex.x);
 highp vec3 vertexB = readAttribute0(aVertexIndex.y);
 emitLine(uProjection, vertexA, vertexB);
@@ -95,70 +99,80 @@ highp uint lineEndpointIndex = getLineEndpointIndex();
 highp uint vertexIndex = aVertexIndex.x * lineEndpointIndex + aVertexIndex.y * (1u - lineEndpointIndex);
 `;
 
-        builder.addFragmentCode(`
+          builder.addFragmentCode(`
 vec4 segmentColor() {
   return uColor;
 }
 void emitRGB(vec3 color) {
-  emit(vec4(color * uColor.a, uColor.a * getLineAlpha() * ${this.getCrossSectionFadeFactor()}), uPickID);
+  emit(vec4(color * uColor.a, uColor.a * getLineAlpha() * ${
+              this.getCrossSectionFadeFactor()}), uPickID);
 }
 void emitDefault() {
   //emit(vec4(uColor.rgb, uColor.a * ${this.getCrossSectionFadeFactor()}), uPickID);
   emit(vec4(uColor.rgb, uColor.a * getLineAlpha() * ${this.getCrossSectionFadeFactor()}), uPickID);
 }
 `);
-        builder.addFragmentCode(glsl_COLORMAPS);
-        const {vertexAttributes} = this;
-        const numAttributes = vertexAttributes.length;
-        for (let i = 1; i < numAttributes; ++i) {
-          const info = vertexAttributes[i];
-          builder.addVarying(`highp ${info.glslDataType}`, `vCustom${i}`);
-          vertexMain += `vCustom${i} = readAttribute${i}(vertexIndex);\n`;
-          builder.addFragmentCode(`#define ${info.name} vCustom${i}\n`);
-        }
-        builder.setVertexMain(vertexMain);
-        builder.setFragmentMainFunction(FRAGMENT_MAIN_START + '\n' + fragmentMain);
-      });
+          builder.addFragmentCode(glsl_COLORMAPS);
+          const {vertexAttributes} = this;
+          const numAttributes = vertexAttributes.length;
+          for (let i = 1; i < numAttributes; ++i) {
+            const info = vertexAttributes[i];
+            builder.addVarying(`highp ${info.glslDataType}`, `vCustom${i}`);
+            vertexMain += `vCustom${i} = readAttribute${i}(vertexIndex);\n`;
+            builder.addFragmentCode(`#define ${info.name} vCustom${i}\n`);
+          }
+          builder.setVertexMain(vertexMain);
+          addControlsToBuilder(shaderParseResult.controls, builder);
+          builder.setFragmentMainFunction(shaderCodeWithLineDirective(shaderParseResult.code));
+        },
+  });
 
-  nodeShaderGetter = parameterizedEmitterDependentShaderGetter(
-      this, this.gl,
-      {type: 'skeleton/SkeletonShaderManager/node', vertexAttributes: this.vertexAttributes},
-      this.base.fallbackFragmentMain, this.base.displayState.fragmentMain,
-      this.base.displayState.shaderError, (builder: ShaderBuilder, fragmentMain: string) => {
-        this.defineAttributeAccess(builder);
-        this.circleShader.defineShader(builder, /*crossSectionFade=*/ this.targetIsSliceView);
-        this.defineCommonShader(builder);
-        let vertexMain = `
+  nodeShaderGetter = parameterizedEmitterDependentShaderGetter(this, this.gl, {
+    memoizeKey:
+        {type: 'skeleton/SkeletonShaderManager/node', vertexAttributes: this.vertexAttributes},
+    fallbackParameters: this.base.fallbackShaderParameters,
+    parameters: this.base.displayState.skeletonRenderingOptions.shaderControlState.parseResult,
+    shaderError: this.base.displayState.shaderError,
+    defineShader:
+        (builder: ShaderBuilder, shaderParseResult: ShaderControlsParseResult) => {
+          this.defineAttributeAccess(builder);
+          this.circleShader.defineShader(builder, /*crossSectionFade=*/ this.targetIsSliceView);
+          this.defineCommonShader(builder);
+          let vertexMain = `
 highp uint vertexIndex = uint(gl_InstanceID);
 highp vec3 vertexPosition = readAttribute0(vertexIndex);
 emitCircle(uProjection * vec4(vertexPosition, 1.0));
 `;
 
-        builder.addFragmentCode(`
+          builder.addFragmentCode(`
 vec4 segmentColor() {
   return uColor;
 }
+void emitRGBA(vec4 color) {
+  vec4 borderColor = color;
+  emit(getCircleColor(color, borderColor), uPickID);
+}
 void emitRGB(vec3 color) {
-  vec4 borderColor = vec4(0.0, 0.0, 0.0, 1.0);
-  emit(getCircleColor(vec4(color, 1.0), borderColor), uPickID);
+  emitRGBA(vec4(color, 1.0));
 }
 void emitDefault() {
-  vec4 borderColor = vec4(0.0, 0.0, 0.0, 1.0);
-  emit(getCircleColor(uColor, borderColor), uPickID);
+  emitRGBA(uColor);
 }
 `);
-        builder.addFragmentCode(glsl_COLORMAPS);
-        const {vertexAttributes} = this;
-        const numAttributes = vertexAttributes.length;
-        for (let i = 1; i < numAttributes; ++i) {
-          const info = vertexAttributes[i];
-          builder.addVarying(`highp ${info.glslDataType}`, `vCustom${i}`);
-          vertexMain += `vCustom${i} = readAttribute${i}(vertexIndex);\n`;
-          builder.addFragmentCode(`#define ${info.name} vCustom${i}\n`);
-        }
-        builder.setVertexMain(vertexMain);
-        builder.setFragmentMainFunction(FRAGMENT_MAIN_START + '\n' + fragmentMain);
-      });
+          builder.addFragmentCode(glsl_COLORMAPS);
+          const {vertexAttributes} = this;
+          const numAttributes = vertexAttributes.length;
+          for (let i = 1; i < numAttributes; ++i) {
+            const info = vertexAttributes[i];
+            builder.addVarying(`highp ${info.glslDataType}`, `vCustom${i}`);
+            vertexMain += `vCustom${i} = readAttribute${i}(vertexIndex);\n`;
+            builder.addFragmentCode(`#define ${info.name} vCustom${i}\n`);
+          }
+          builder.setVertexMain(vertexMain);
+          addControlsToBuilder(shaderParseResult.controls, builder);
+          builder.setFragmentMainFunction(shaderCodeWithLineDirective(shaderParseResult.code));
+        },
+  });
 
   get gl(): GL {
     return this.base.gl;
@@ -194,10 +208,9 @@ void emitDefault() {
 
   beginLayer(
       gl: GL, shader: ShaderProgram,
-      renderContext: SliceViewPanelRenderContext|PerspectiveViewRenderContext,
-      objectToDataMatrix: mat4) {
-    let {dataToDevice} = renderContext;
-    let mat = mat4.multiply(tempMat2, dataToDevice, objectToDataMatrix);
+      renderContext: SliceViewPanelRenderContext|PerspectiveViewRenderContext, modelMatrix: mat4) {
+    let {viewProjectionMat} = renderContext;
+    let mat = mat4.multiply(tempMat2, viewProjectionMat, modelMatrix);
     gl.uniformMatrix4fv(shader.uniform('uProjection'), false, mat);
   }
 
@@ -212,7 +225,7 @@ void emitDefault() {
   drawSkeleton(
       gl: GL, edgeShader: ShaderProgram, nodeShader: ShaderProgram|null,
       skeletonChunk: SkeletonChunk, renderContext: {viewportWidth: number, viewportHeight: number},
-    lineWidth: number) {
+      lineWidth: number, pointDiameter: number) {
     const {vertexAttributes} = this;
     const numAttributes = vertexAttributes.length;
     const {vertexAttributeTextures} = skeletonChunk;
@@ -243,7 +256,7 @@ void emitDefault() {
       this.textureAccessHelper.setupTextureLayout(gl, nodeShader, skeletonChunk);
       this.circleShader.draw(
           nodeShader, renderContext, {
-            interiorRadiusInPixels: 5,
+            interiorRadiusInPixels: pointDiameter / 2,
             borderWidthInPixels: 0,
             featherWidthInPixels: this.targetIsSliceView ? 1.0 : 0.0,
           },
@@ -263,18 +276,82 @@ void emitDefault() {
   }
 }
 
+export enum SkeletonRenderMode {
+  LINES,
+  LINES_AND_POINTS,
+}
+
+export class TrackableSkeletonRenderMode extends TrackableEnum<SkeletonRenderMode> {
+  constructor(value: SkeletonRenderMode, defaultValue: SkeletonRenderMode = value) {
+    super(SkeletonRenderMode, value, defaultValue);
+  }
+}
+
+export class TrackableSkeletonLineWidth extends TrackableValue<number> {
+  constructor(value: number, defaultValue: number = value) {
+    super(value, verifyFinitePositiveFloat, defaultValue);
+  }
+}
+
+export interface ViewSpecificSkeletonRenderingOptions {
+  mode: TrackableSkeletonRenderMode;
+  lineWidth: TrackableSkeletonLineWidth;
+}
+
+export class SkeletonRenderingOptions implements Trackable {
+  private compound = new CompoundTrackable();
+  get changed() {
+    return this.compound.changed;
+  }
+
+  shader = getTrackableFragmentMain();
+  shaderControlState = new ShaderControlState(this.shader);
+  params2d: ViewSpecificSkeletonRenderingOptions = {
+    mode: new TrackableSkeletonRenderMode(SkeletonRenderMode.LINES_AND_POINTS),
+    lineWidth: new TrackableSkeletonLineWidth(5),
+  };
+  params3d: ViewSpecificSkeletonRenderingOptions = {
+    mode: new TrackableSkeletonRenderMode(SkeletonRenderMode.LINES),
+    lineWidth: new TrackableSkeletonLineWidth(2),
+  };
+
+  constructor() {
+    const {compound} = this;
+    compound.add('shader', this.shader);
+    compound.add('shaderControls', this.shaderControlState);
+    compound.add('mode2d', this.params2d.mode);
+    compound.add('lineWidth2d', this.params2d.lineWidth);
+    compound.add('mode3d', this.params3d.mode);
+    compound.add('lineWidth3d', this.params3d.lineWidth);
+  }
+
+  reset() {
+    this.compound.reset();
+  }
+
+  restoreState(obj: any) {
+    if (obj === undefined) return;
+    this.compound.restoreState(obj);
+  }
+
+  toJSON(): any {
+    const obj = this.compound.toJSON();
+    for (const _ in obj) return obj;
+    return undefined;
+  }
+}
+
 export interface SkeletonLayerDisplayState extends SegmentationDisplayState3D {
   shaderError: WatchableShaderError;
-  fragmentMain: TrackableValue<string>;
-  showSkeletonNodes: WatchableValueInterface<boolean>;
+  skeletonRenderingOptions: SkeletonRenderingOptions;
 }
 
 export class SkeletonLayer extends RefCounted {
-  private tempMat = mat4.create();
   redrawNeeded = new NullarySignal();
   private sharedObject: SegmentationLayerSharedObject;
   vertexAttributes: VertexAttributeRenderInfo[];
-  fallbackFragmentMain = new WatchableValue<string>(DEFAULT_FRAGMENT_MAIN);
+  fallbackShaderParameters =
+      new WatchableValue<ShaderControlsParseResult>(parseShaderUiControls(DEFAULT_FRAGMENT_MAIN));
 
   get visibility() {
     return this.sharedObject.visibility;
@@ -282,16 +359,16 @@ export class SkeletonLayer extends RefCounted {
 
   constructor(
       public chunkManager: ChunkManager, public source: SkeletonSource,
-      public voxelSizeObject: VoxelSize, public displayState: SkeletonLayerDisplayState) {
+      public displayState: SkeletonLayerDisplayState) {
     super();
 
     registerRedrawWhenSegmentationDisplayState3DChanged(displayState, this);
     this.displayState.shaderError.value = undefined;
-    this.registerDisposer(displayState.fragmentMain.changed.add(() => {
+    const {skeletonRenderingOptions: renderingOptions} = displayState;
+    this.registerDisposer(renderingOptions.shader.changed.add(() => {
       this.displayState.shaderError.value = undefined;
       this.redrawNeeded.dispatch();
     }));
-    this.registerDisposer(displayState.showSkeletonNodes.changed.add(this.redrawNeeded.dispatch));
     let sharedObject = this.sharedObject =
         this.registerDisposer(new SegmentationLayerSharedObject(chunkManager, displayState));
     sharedObject.RPC_TYPE_ID = SKELETON_LAYER_RPC_ID;
@@ -318,39 +395,43 @@ export class SkeletonLayer extends RefCounted {
 
   draw(
       renderContext: SliceViewPanelRenderContext|PerspectiveViewRenderContext, layer: RenderLayer,
-      renderHelper: RenderHelper, lineWidth?: number) {
-    if (lineWidth === undefined) {
-      lineWidth = renderContext.emitColor ? 1 : 5;
-    }
-    let {gl, source, displayState} = this;
-    let alpha = Math.min(1.0, displayState.objectAlpha.value);
+      renderHelper: RenderHelper, renderOptions: ViewSpecificSkeletonRenderingOptions,
+      attachment: VisibleLayerInfo<ThreeDimensionalRenderLayerAttachmentState>) {
+    let lineWidth = renderOptions.lineWidth.value;
+    const {gl, source, displayState} = this;
+    const alpha = Math.min(1.0, displayState.objectAlpha.value);
     if (alpha <= 0.0) {
       // Skip drawing.
       return;
     }
-    const showSkeletonNodes = this.displayState.showSkeletonNodes.value;
+    const modelMatrix = update3dRenderLayerAttachment(
+        displayState.transform.value, renderContext.displayDimensions, attachment);
+    if (modelMatrix === undefined) return;
+    let pointDiameter: number;
+    if (renderOptions.mode.value === SkeletonRenderMode.LINES_AND_POINTS) {
+      pointDiameter = Math.max(10, lineWidth * 2);
+    } else {
+      pointDiameter = lineWidth;
+    }
 
-    const edgeShader = renderHelper.edgeShaderGetter(renderContext.emitter);
-    const nodeShader = renderHelper.nodeShaderGetter(renderContext.emitter);
+    const edgeShaderResult = renderHelper.edgeShaderGetter(renderContext.emitter);
+    const nodeShaderResult = renderHelper.nodeShaderGetter(renderContext.emitter);
+    const {shader: edgeShader, parameters: edgeShaderParameters} = edgeShaderResult;
+    const {shader: nodeShader, parameters: nodeShaderParameters} = nodeShaderResult;
     if (edgeShader === null || nodeShader === null) {
       // Shader error, skip drawing.
       return;
     }
 
-    let objectToDataMatrix = this.tempMat;
-    mat4.identity(objectToDataMatrix);
-    if (source.skeletonVertexCoordinatesInVoxels) {
-      mat4.scale(objectToDataMatrix, objectToDataMatrix, this.voxelSizeObject.size);
-    }
-    mat4.multiply(objectToDataMatrix, objectToDataMatrix, source.transform);
-    mat4.multiply(
-        objectToDataMatrix, this.displayState.objectToDataTransform.transform, objectToDataMatrix);
+    const {shaderControlState} = this.displayState.skeletonRenderingOptions;
 
     edgeShader.bind();
-    renderHelper.beginLayer(gl, edgeShader, renderContext, objectToDataMatrix);
+    renderHelper.beginLayer(gl, edgeShader, renderContext, modelMatrix);
+    setControlsInShader(gl, edgeShader, shaderControlState, edgeShaderParameters.controls);
 
     nodeShader.bind();
-    renderHelper.beginLayer(gl, nodeShader, renderContext, objectToDataMatrix);
+    renderHelper.beginLayer(gl, nodeShader, renderContext, modelMatrix);
+    setControlsInShader(gl, nodeShader, shaderControlState, nodeShaderParameters.controls);
 
     const skeletons = source.chunks;
     const {pickIDs} = renderContext;
@@ -376,8 +457,7 @@ export class SkeletonLayer extends RefCounted {
         renderHelper.setPickID(gl, nodeShader, pickIDs.registerUint64(layer, objectId));
       }
       renderHelper.drawSkeleton(
-          gl, edgeShader, showSkeletonNodes ? nodeShader : null, skeleton, renderContext, lineWidth!
-      );
+          gl, edgeShader, nodeShader, skeleton, renderContext, lineWidth!, pointDiameter);
     });
     renderHelper.endLayer(gl, edgeShader);
   }
@@ -385,14 +465,15 @@ export class SkeletonLayer extends RefCounted {
 
 export class PerspectiveViewSkeletonLayer extends PerspectiveViewRenderLayer {
   private renderHelper = this.registerDisposer(new RenderHelper(this.base, false));
+  private renderOptions = this.base.displayState.skeletonRenderingOptions.params3d;
 
   constructor(public base: SkeletonLayer) {
     super();
     this.registerDisposer(base);
-    this.registerDisposer(base.redrawNeeded.add(() => {
-      this.redrawNeeded.dispatch();
-    }));
-    this.setReady(true);
+    this.registerDisposer(base.redrawNeeded.add(this.redrawNeeded.dispatch));
+    const {renderOptions} = this;
+    this.registerDisposer(renderOptions.mode.changed.add(this.redrawNeeded.dispatch));
+    this.registerDisposer(renderOptions.lineWidth.changed.add(this.redrawNeeded.dispatch));
     this.registerDisposer(base.visibility.add(this.visibility));
   }
   get gl() {
@@ -403,29 +484,37 @@ export class PerspectiveViewSkeletonLayer extends PerspectiveViewRenderLayer {
     return this.base.displayState.objectAlpha.value < 1.0;
   }
 
-  draw(renderContext: PerspectiveViewRenderContext) {
-    this.base.draw(renderContext, this, this.renderHelper);
+  draw(
+      renderContext: PerspectiveViewRenderContext,
+      attachment: VisibleLayerInfo<ThreeDimensionalRenderLayerAttachmentState>) {
+    if (!renderContext.emitColor && renderContext.alreadyEmittedPickID) {
+      // No need for a separate pick ID pass.
+      return;
+    }
+    this.base.draw(renderContext, this, this.renderHelper, this.renderOptions, attachment);
   }
 }
 
 export class SliceViewPanelSkeletonLayer extends SliceViewPanelRenderLayer {
   private renderHelper = this.registerDisposer(new RenderHelper(this.base, true));
-
+  private renderOptions = this.base.displayState.skeletonRenderingOptions.params2d;
   constructor(public base: SkeletonLayer) {
     super();
     this.registerDisposer(base);
-    this.registerDisposer(base.redrawNeeded.add(() => {
-      this.redrawNeeded.dispatch();
-    }));
-    this.setReady(true);
+    const {renderOptions} = this;
+    this.registerDisposer(renderOptions.mode.changed.add(this.redrawNeeded.dispatch));
+    this.registerDisposer(renderOptions.lineWidth.changed.add(this.redrawNeeded.dispatch));
+    this.registerDisposer(base.redrawNeeded.add(this.redrawNeeded.dispatch));
     this.registerDisposer(base.visibility.add(this.visibility));
   }
   get gl() {
     return this.base.gl;
   }
 
-  draw(renderContext: SliceViewPanelRenderContext) {
-    this.base.draw(renderContext, this, this.renderHelper, 1);
+  draw(
+      renderContext: SliceViewPanelRenderContext,
+      attachment: VisibleLayerInfo<ThreeDimensionalRenderLayerAttachmentState>) {
+    this.base.draw(renderContext, this, this.renderHelper, this.renderOptions, attachment);
   }
 }
 
@@ -434,7 +523,7 @@ function getWebglDataType(dataType: DataType) {
     case DataType.FLOAT32:
       return WebGL2RenderingContext.FLOAT;
     default:
-      throw new Error('Data type not supported by WebGL: ${DataType[dataType]}');
+      throw new Error(`Data type not supported by WebGL: ${DataType[dataType]}`);
   }
 }
 
@@ -514,6 +603,8 @@ function getAttributeTextureFormats(vertexAttributes: Map<string, VertexAttribut
   return attributeTextureFormats;
 }
 
+export interface SkeletonSourceOptions {}
+
 export class SkeletonSource extends ChunkSource {
   private attributeTextureFormats_?: TextureFormat[];
 
@@ -531,20 +622,8 @@ export class SkeletonSource extends ChunkSource {
     return new SkeletonChunk(this, x);
   }
 
-  transform: mat4;
-
-  constructor(chunkManager: Borrowed<ChunkManager>, options: {transform?: mat4}) {
+  constructor(chunkManager: Borrowed<ChunkManager>, options: SkeletonSourceOptions) {
     super(chunkManager, options);
-    const {transform = mat4.create()} = options;
-    this.transform = transform;
-  }
-
-  /**
-   * Specifies whether the skeleton vertex coordinates are specified in units of voxels rather than
-   * nanometers.
-   */
-  get skeletonVertexCoordinatesInVoxels() {
-    return true;
   }
 
   get vertexAttributes(): Map<string, VertexAttributeInfo> {
