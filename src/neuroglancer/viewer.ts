@@ -103,8 +103,13 @@ export class InputEventBindings extends DataPanelInputEventBindings {
 }
 
 const viewerUiControlOptionKeys: (keyof ViewerUIControlConfiguration)[] = [
-  'showHelpButton', 'showEditStateButton', 'showLayerPanel', 'showLocation',
-  'showAnnotationToolStatus', 'showJsonPostButton'
+  'showHelpButton',
+  'showEditStateButton',
+  'showLayerPanel',
+  'showLocation',
+  'showLayerHoverValues',
+  'showAnnotationToolStatus',
+  'showJsonPostButton'
 ];
 
 const viewerOptionKeys: (keyof ViewerUIOptions)[] =
@@ -116,6 +121,7 @@ export class ViewerUIControlConfiguration {
   showJsonPostButton = new TrackableBoolean(true);
   showLayerPanel = new TrackableBoolean(true);
   showLocation = new TrackableBoolean(true);
+  showLayerHoverValues = new TrackableBoolean(true);
   showAnnotationToolStatus = new TrackableBoolean(true);
 }
 
@@ -144,6 +150,7 @@ interface ViewerUIOptions {
   showEditStateButton: boolean;
   showLayerPanel: boolean;
   showLocation: boolean;
+  showLayerHoverValues:boolean;
   showPanelBorders: boolean;
   showAnnotationToolStatus: boolean;
   showJsonPostButton: boolean;
