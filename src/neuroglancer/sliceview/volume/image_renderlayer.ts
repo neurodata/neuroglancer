@@ -25,10 +25,24 @@ import {makeTrackableFragmentMain, shaderCodeWithLineDirective, WatchableShaderE
 import {ShaderBuilder, ShaderProgram} from 'neuroglancer/webgl/shader';
 import {addControlsToBuilder, parseShaderUiControls, setControlsInShader, ShaderControlsParseResult, ShaderControlState} from 'neuroglancer/webgl/shader_ui_controls';
 
-const DEFAULT_FRAGMENT_MAIN = `void main() {
-  emitGrayscale(toNormalized(getDataValue()));
+const DEFAULT_FRAGMENT_MAIN = `#uicontrol vec3 color color(default="white")
+#uicontrol float min slider(default=0, min=0, max=1, step=0.01)
+#uicontrol float max slider(default=1, min=0, max=1, step=0.01)
+#uicontrol float brightness slider(default=0, min=-1, max=1, step=0.1)
+#uicontrol float contrast slider(default=0, min=-3, max=3, step=0.1)
+
+float scale(float x) {
+  return (x - min) / (max - min);
 }
-`;
+
+void main() {
+  emitRGB(
+    color * vec3(
+      scale(
+        toNormalized(getDataValue()))
+       + brightness) * exp(contrast)
+  );
+}`;
 
 export function getTrackableFragmentMain(value = DEFAULT_FRAGMENT_MAIN) {
   return makeTrackableFragmentMain(value);

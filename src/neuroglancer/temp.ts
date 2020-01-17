@@ -48,11 +48,11 @@ const SHADER_JSON_KEY = 'shader';
 const SHADER_CONTROLS_JSON_KEY = 'shaderControls';
 const CROSS_SECTION_RENDER_SCALE_JSON_KEY = 'crossSectionRenderScale';
 
+const Base = UserLayerWithAnnotationsMixin(UserLayer);
 const MIN_JSON_KEY = "min";
 const MAX_JSON_KEY = "max";
 const COLOR_JSON_KEY = "color";
 
-const Base = UserLayerWithAnnotationsMixin(UserLayer);
 export class ImageUserLayer extends Base {
   opacity = trackableAlphaValue(0.5);
   blendMode = trackableBlendModeValue();
