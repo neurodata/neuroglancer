@@ -40,6 +40,7 @@ import {Uint64Set} from 'neuroglancer/uint64_set';
 import {packColor, parseRGBColorSpecification} from 'neuroglancer/util/color';
 import {Borrowed} from 'neuroglancer/util/disposable';
 import {parseArray, verifyObjectAsMap, verifyObjectProperty, verifyOptionalObjectProperty, verifyString} from 'neuroglancer/util/json';
+import {NullarySignal} from 'neuroglancer/util/signal';
 import {Uint64} from 'neuroglancer/util/uint64';
 import {makeWatchableShaderError} from 'neuroglancer/webgl/dynamic_shader';
 import {DependentViewWidget} from 'neuroglancer/widget/dependent_view_widget';
@@ -53,6 +54,8 @@ import {ShaderCodeWidget} from 'neuroglancer/widget/shader_code_widget';
 import {ShaderControls} from 'neuroglancer/widget/shader_controls';
 import {Tab} from 'neuroglancer/widget/tab_view';
 import {Uint64EntryWidget} from 'neuroglancer/widget/uint64_entry_widget';
+import {PickState} from 'neuroglancer/layer';
+import {AraAtlas} from 'neuroglancer/ui/ara_atlas';
 
 const SELECTED_ALPHA_JSON_KEY = 'selectedAlpha';
 const NOT_SELECTED_ALPHA_JSON_KEY = 'notSelectedAlpha';
@@ -73,6 +76,11 @@ const SKELETON_SHADER_JSON_KEY = 'skeletonShader';
 
 const Base = UserLayerWithAnnotationsMixin(UserLayer);
 export class SegmentationUserLayer extends Base {
+  /**
+   * Atlas to use for id lookup.
+  */
+  atlas: AraAtlas|null|undefined = null;
+  
   sliceViewRenderScaleHistogram = new RenderScaleHistogram();
   sliceViewRenderScaleTarget = trackableRenderScaleTarget(1);
 
@@ -94,8 +102,23 @@ export class SegmentationUserLayer extends Base {
     renderScaleTarget: trackableRenderScaleTarget(1),
   };
 
+  /**
+   * If meshPath is undefined, a default mesh source provided by the volume may be used.  If
+   * meshPath is null, the default mesh source is not used.
+   */
+  meshPath: string|null|undefined;
+  skeletonsPath: string|undefined;
+  meshLayer: Borrowed<MeshLayer|MultiscaleMeshLayer>|undefined;
+  skeletonLayer: Borrowed<SkeletonLayer>|undefined;
+
+  // Dispatched when either meshLayer or skeletonLayer changes.
+  objectLayerStateChanged = new NullarySignal();
+
+
   constructor(managedLayer: Borrowed<ManagedUserLayer>, specification: any) {
     super(managedLayer, specification);
+    
+
     this.displayState.visibleSegments.changed.add(this.specificationChanged.dispatch);
     this.displayState.segmentEquivalences.changed.add(this.specificationChanged.dispatch);
     this.displayState.segmentSelectionState.bindTo(this.manager.layerSelectedValues, this);
@@ -113,6 +136,25 @@ export class SegmentationUserLayer extends Base {
         'rendering', {label: 'Rendering', order: -100, getter: () => new DisplayOptionsTab(this)});
     this.tabs.default = 'rendering';
   }
+
+  
+
+  /* Kludge to catch changes to the voxel state (e.g., mouse movement).
+    A better solution would tap directly into LayerSelectedValues.values and update on render only.
+  */
+   ontfield: HTMLElement | null = document.getElementById('onttext');
+   oldvalue: any|null|undefined;
+   getValueAt(position: Float32Array, pickState: PickState) {
+     let newvalue = super.getValueAt(position, pickState);
+     if (newvalue !== null && (+newvalue !== this.oldvalue) && newvalue !== undefined) {
+      //  console.log('I got a new value! ' + newvalue + ' vs ' + this.oldvalue);
+       if (! (typeof this.atlas === 'undefined' || this.atlas === null) && (this.ontfield != null)) {
+                 this.ontfield.innerHTML = '' + this.atlas.getNameForId(+newvalue.toString());
+       }
+     }
+     this.oldvalue = +newvalue;
+     return newvalue;
+   }
 
   get volumeOptions() {
     return {volumeType: VolumeType.SEGMENTATION};
