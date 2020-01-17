@@ -118,6 +118,7 @@ export class SegmentationUserLayer extends Base {
   constructor(managedLayer: Borrowed<ManagedUserLayer>, specification: any) {
     super(managedLayer, specification);
     
+    this.atlas = new AraAtlas();
 
     this.displayState.visibleSegments.changed.add(this.specificationChanged.dispatch);
     this.displayState.segmentEquivalences.changed.add(this.specificationChanged.dispatch);
