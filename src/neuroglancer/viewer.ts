@@ -41,12 +41,14 @@ import {setupPositionDropHandlers} from 'neuroglancer/ui/position_drag_and_drop'
 import {SelectionDetailsTab} from 'neuroglancer/ui/selection_details';
 import {StateEditorDialog} from 'neuroglancer/ui/state_editor';
 import {StatisticsDisplayState, StatisticsPanel} from 'neuroglancer/ui/statistics';
+import {removeParameterFromUrl} from 'neuroglancer/ui/url_hash_binding';
 import {AutomaticallyFocusedElement} from 'neuroglancer/util/automatic_focus';
 import {TrackableRGB} from 'neuroglancer/util/color';
 import {Borrowed, Owned, RefCounted} from 'neuroglancer/util/disposable';
 import {removeFromParent} from 'neuroglancer/util/dom';
 import {registerActionListener} from 'neuroglancer/util/event_action_map';
 import {vec3} from 'neuroglancer/util/geom';
+import {cancellableFetchOk, responseJson} from 'neuroglancer/util/http_request';
 import {parseFixedLengthArray, verifyFinitePositiveFloat, verifyObject, verifyOptionalObjectProperty} from 'neuroglancer/util/json';
 import {EventActionMap, KeyboardEventBinder} from 'neuroglancer/util/keyboard_bindings';
 import {NullarySignal, Signal} from 'neuroglancer/util/signal';
@@ -62,6 +64,15 @@ import {TrackableScaleBarOptions} from 'neuroglancer/widget/scale_bar';
 import {RPC} from 'neuroglancer/worker_rpc';
 
 declare var NEUROGLANCER_OVERRIDE_DEFAULT_VIEWER_OPTIONS: any
+
+import './viewer.css';
+import 'neuroglancer/noselect.css';
+
+
+
+export function validateStateServer(obj: any) {
+  return obj;
+}
 
 export class DataManagementContext extends RefCounted {
   worker: Worker;
@@ -101,6 +112,7 @@ const viewerUiControlOptionKeys: (keyof ViewerUIControlConfiguration)[] = [
   'showLocation',
   'showLayerHoverValues',
   'showAnnotationToolStatus',
+  'showJsonPostButton'
 ];
 
 const viewerOptionKeys: (keyof ViewerUIOptions)[] =
@@ -109,6 +121,7 @@ const viewerOptionKeys: (keyof ViewerUIOptions)[] =
 export class ViewerUIControlConfiguration {
   showHelpButton = new TrackableBoolean(true);
   showEditStateButton = new TrackableBoolean(true);
+  showJsonPostButton = new TrackableBoolean(true);
   showLayerPanel = new TrackableBoolean(true);
   showLocation = new TrackableBoolean(true);
   showLayerHoverValues = new TrackableBoolean(true);
@@ -122,6 +135,7 @@ export class ViewerUIConfiguration extends ViewerUIControlConfiguration {
   showUIControls = new TrackableBoolean(true);
   showPanelBorders = new TrackableBoolean(true);
 }
+
 
 function setViewerUiConfiguration(
     config: ViewerUIConfiguration, options: Partial<ViewerUIOptions>) {
@@ -142,6 +156,7 @@ interface ViewerUIOptions {
   showLayerHoverValues: boolean;
   showPanelBorders: boolean;
   showAnnotationToolStatus: boolean;
+  showJsonPostButton: boolean;
 }
 
 export interface ViewerOptions extends ViewerUIOptions, VisibilityPrioritySpecification {
@@ -220,6 +235,7 @@ class TrackableViewerState extends CompoundTrackable {
         viewer.dataContext.chunkQueueManager.capacities.systemMemory.sizeLimit);
     this.add(
         'concurrentDownloads', viewer.dataContext.chunkQueueManager.capacities.download.itemLimit);
+    this.add('jsonStateServer', viewer.jsonStateServer);
     this.add('selectedLayer', viewer.selectedLayer);
     this.add('crossSectionBackgroundColor', viewer.crossSectionBackgroundColor);
     this.add('projectionBackgroundColor', viewer.perspectiveViewBackgroundColor);
@@ -327,6 +343,7 @@ export class Viewer extends RefCounted implements ViewerState {
   layerSpecification: TopLevelLayerListSpecification;
   layout: RootLayoutContainer;
 
+  jsonStateServer = new TrackableValue<string>('', validateStateServer);
   state: TrackableViewerState;
 
   dataContext: Owned<DataManagementContext>;
@@ -523,7 +540,15 @@ export class Viewer extends RefCounted implements ViewerState {
           this.uiControlVisibility.showEditStateButton, button));
       topRow.appendChild(button);
     }
-
+    {
+      const button = makeIcon({text: '⇧', title: 'Post JSON to state server'});
+      this.registerEventListener(button, 'click', () => {
+        this.postJsonState();
+      });
+      this.registerDisposer(new ElementVisibilityFromTrackableBoolean(
+          this.uiControlVisibility.showJsonPostButton, button));
+      topRow.appendChild(button);
+    }
 
     {
       const button = makeIcon({text: '?', title: 'Help'});
@@ -698,6 +723,63 @@ export class Viewer extends RefCounted implements ViewerState {
       ['Cross section view', inputEventBindings.sliceView],
       ['3-D projection view', inputEventBindings.perspectiveView],
     ]);
+  }
+
+  loadFromJsonUrl() {
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('json_url')) {
+      let json_url = urlParams.get('json_url')!;
+      history.replaceState(null, '', removeParameterFromUrl(window.location.href, 'json_url'));
+      StatusMessage
+      .forPromise(
+        cancellableFetchOk(json_url, {}, responseJson)
+          .then(response => {
+            this.state.restoreState(response);
+          }),
+              {
+                initialMessage: `Retrieving state from json_url: ${json_url}.`,
+                delay: true,
+                errorPrefix: `Error retrieving state: `,
+              });
+      }
+  }
+
+  promptJsonStateServer(message: string): void {
+    let json_server_input = prompt(message, 'https://json.neurodata.io/v1');
+    if (json_server_input !== null) {
+      this.jsonStateServer.value = json_server_input;
+      console.log('entered for JSON server:', this.jsonStateServer.value);
+    } else {
+      this.jsonStateServer.reset();
+      console.log('cancelled');
+    }
+  }
+
+  postJsonState() {
+    // if jsonStateServer is not present prompt for value and store it in state
+    if (!this.jsonStateServer.value) {
+      this.promptJsonStateServer('No state server found. Please enter a server URL, or hit OK to use the default server.');
+    }
+    // upload state to jsonStateServer (only if it's defined)
+    if (this.jsonStateServer.value) {
+      StatusMessage.showTemporaryMessage(`Posting state to ${this.jsonStateServer.value}.`);
+      cancellableFetchOk(
+          this.jsonStateServer.value, {method: 'POST', body: JSON.stringify(this.state.toJSON())},
+          responseJson)
+          .then(response => {
+            console.log(response.uri);
+            history.replaceState(
+                null, '',
+                window.location.origin + window.location.pathname + '?json_url=' + response.uri);
+          })
+          // catch errors with upload and prompt the user if there was an error
+          .catch(() => {
+            this.promptJsonStateServer('state server not responding, enter a new one?');
+            if (this.jsonStateServer.value) {
+              this.postJsonState();
+            }
+          });
+    }
   }
 
   editJsonState() {
