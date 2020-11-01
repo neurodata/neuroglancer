@@ -28,15 +28,6 @@ import {addControlsToBuilder, getFallbackBuilderState, parseShaderUiControls, se
 const DEFAULT_FRAGMENT_MAIN = `#uicontrol invlerp normalized
 void main() {
   emitGrayscale(normalized());
-}
-
-void main() {
-  emitRGB(
-    color * vec3(
-      scale(
-        toNormalized(getDataValue()))
-       + brightness) * exp(contrast)
-  );
 }`;
 
 export function getTrackableFragmentMain(value = DEFAULT_FRAGMENT_MAIN) {
